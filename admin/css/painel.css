@@ -114,8 +114,21 @@
 }
 .acoes-linha button:hover { border-color: var(--bsk-amarelo); color: var(--bsk-amarelo); }
 
+.modal-fundo {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
 .modal-form {
   max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 .modal-form .stack { gap: 14px; }
 
