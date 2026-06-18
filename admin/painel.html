@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel — Black Skull Bier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/global.css">
+<link rel="stylesheet" href="css/painel.css">
+</head>
+<body>
+
+<div class="painel-layout">
+
+  <aside class="painel-sidebar">
+    <div class="row" style="padding: 10px 8px;">
+      <div class="bsk-header__logo">BS</div>
+      <div>
+        <div class="bsk-header__nome" style="font-size:15px;">Black Skull</div>
+        <div class="bsk-header__sub" id="texto-perfil-logado">...</div>
+      </div>
+    </div>
+
+    <nav class="painel-sidebar__nav">
+      <button class="nav-item nav-item--ativo" data-secao="secao-colaboradores">Colaboradores</button>
+      <button class="nav-item" data-secao="secao-registros">Registros de ponto</button>
+      <button class="nav-item" data-secao="secao-ausencias">Faltas e folgas</button>
+      <button class="nav-item" data-secao="secao-relatorios">Relatórios</button>
+      <button class="nav-item" data-secao="secao-gestores" id="nav-gestores" style="display:none;">Gestores</button>
+    </nav>
+
+    <button class="btn btn--ghost" id="btn-sair">Sair</button>
+  </aside>
+
+  <main class="painel-conteudo">
+
+    <!-- ========== COLABORADORES ========== -->
+    <section class="painel-secao painel-secao--ativa" id="secao-colaboradores">
+      <div class="painel-topbar">
+        <h2>Colaboradores</h2>
+        <button class="btn btn--primario" id="btn-novo-colaborador">+ Novo colaborador</button>
+      </div>
+      <div class="tabela-wrap">
+        <table class="bsk-tabela">
+          <thead>
+            <tr>
+              <th>Nome</th><th>Cargo</th><th>Vínculo</th><th>Registro</th><th>Jornada</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody-colaboradores">
+            <tr><td colspan="6" class="texto-suave">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== REGISTROS ========== -->
+    <section class="painel-secao" id="secao-registros">
+      <div class="painel-topbar"><h2>Registros de ponto</h2></div>
+      <div class="toolbar">
+        <select id="select-colaborador-registros" class="input" style="max-width:240px;"></select>
+        <div class="row">
+          <input type="date" id="data-inicio-registros" class="input">
+          <span class="texto-suave">até</span>
+          <input type="date" id="data-fim-registros" class="input">
+          <button class="btn btn--secundario" id="btn-filtrar-registros">Filtrar</button>
+        </div>
+      </div>
+      <div class="tabela-wrap">
+        <table class="bsk-tabela">
+          <thead>
+            <tr><th>Data</th><th>Hora</th><th>Tipo</th><th>Origem</th><th></th></tr>
+          </thead>
+          <tbody id="tbody-registros">
+            <tr><td colspan="5" class="texto-suave">Selecione um colaborador.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== AUSÊNCIAS ========== -->
+    <section class="painel-secao" id="secao-ausencias">
+      <div class="painel-topbar">
+        <h2>Faltas e folgas</h2>
+        <button class="btn btn--primario" id="btn-nova-ausencia">+ Lançar ausência</button>
+      </div>
+      <div class="tabela-wrap">
+        <table class="bsk-tabela">
+          <thead>
+            <tr><th>Colaborador</th><th>Data</th><th>Tipo</th><th>Motivo</th><th></th></tr>
+          </thead>
+          <tbody id="tbody-ausencias">
+            <tr><td colspan="5" class="texto-suave">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== RELATÓRIOS ========== -->
+    <section class="painel-secao" id="secao-relatorios">
+      <div class="painel-topbar"><h2>Relatórios</h2></div>
+
+      <div class="card mt-16">
+        <h3>Relatório individual</h3>
+        <p class="texto-suave texto-pequeno mt-8">Gera PDF formatado conforme o vínculo do colaborador (CLT ou MEI).</p>
+        <div class="stack mt-16">
+          <div>
+            <label class="bsk-label">Colaborador</label>
+            <select id="select-colaborador-relatorio" class="input"></select>
+          </div>
+          <div class="row" id="opcoes-periodo-relatorio">
+            <!-- preenchido dinamicamente conforme CLT/MEI -->
+          </div>
+          <button class="btn btn--primario" id="btn-gerar-pdf-individual">Gerar PDF</button>
+        </div>
+      </div>
+
+      <div class="card mt-16">
+        <h3>Resumo geral (todos os colaboradores)</h3>
+        <p class="texto-suave texto-pequeno mt-8">Lista com total de horas, extras e faltas de todos no período.</p>
+        <div class="stack mt-16">
+          <div class="row">
+            <input type="date" id="data-inicio-resumo" class="input">
+            <span class="texto-suave">até</span>
+            <input type="date" id="data-fim-resumo" class="input">
+          </div>
+          <button class="btn btn--primario" id="btn-gerar-pdf-resumo">Gerar PDF resumo</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== GESTORES (Master) ========== -->
+    <section class="painel-secao" id="secao-gestores">
+      <div class="painel-topbar">
+        <h2>Gestores</h2>
+        <button class="btn btn--primario" id="btn-novo-gestor">+ Novo gestor</button>
+      </div>
+      <div class="tabela-wrap">
+        <table class="bsk-tabela">
+          <thead><tr><th>Nome</th><th>E-mail</th><th>Tipo</th><th></th></tr></thead>
+          <tbody id="tbody-gestores">
+            <tr><td colspan="4" class="texto-suave">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="camada-modais"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="../js/supabase-client.js"></script>
+<script src="js/auth-guard.js"></script>
+<script src="js/painel-colaboradores.js"></script>
+<script src="js/painel-registros.js"></script>
+<script src="js/painel-ausencias.js"></script>
+<script src="js/painel-relatorios.js"></script>
+<script src="js/painel-gestores.js"></script>
+<script src="js/painel-nav.js"></script>
+</body>
+</html>

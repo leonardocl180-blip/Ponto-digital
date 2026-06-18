@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Black Skull Bier — Área administrativa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/global.css">
+</head>
+<body>
+
+  <div class="center-tela">
+    <div class="card" style="max-width: 380px; width: 100%;">
+
+      <div class="row" style="justify-content:center; margin-bottom: 24px;">
+        <div class="bsk-header__logo">BS</div>
+        <div>
+          <div class="bsk-header__nome">Black Skull Bier</div>
+          <div class="bsk-header__sub">Área administrativa</div>
+        </div>
+      </div>
+
+      <form id="form-login" class="stack">
+        <div>
+          <label class="bsk-label">E-mail</label>
+          <input type="email" id="input-email" class="input" required autocomplete="username">
+        </div>
+        <div>
+          <label class="bsk-label">Senha</label>
+          <input type="password" id="input-senha" class="input" required autocomplete="current-password">
+        </div>
+        <div class="texto-pequeno" style="color: var(--bsk-vermelho); min-height: 18px;" id="msg-erro"></div>
+        <button type="submit" class="btn btn--primario btn--bloco" id="btn-entrar">Entrar</button>
+      </form>
+
+      <div style="text-align:center; margin-top: 20px;">
+        <a href="../index.html" class="btn btn--ghost">← Voltar para o ponto</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>
