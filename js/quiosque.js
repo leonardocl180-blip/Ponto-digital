@@ -9,6 +9,7 @@ const elRelogioData = document.getElementById("relogio-data");
 const elModais = document.getElementById("camada-modais");
 
 let colaboradores = [];
+let statusHoje = {};
 let colaboradorSelecionado = null;
 let pinDigitado = "";
 let streamCamera = null;
@@ -44,6 +45,23 @@ async function carregarColaboradores() {
   }
 
   colaboradores = data || [];
+
+  // Busca todas as batidas de hoje em uma única query para
+  // mostrar o status de cada funcionário já nos cartões.
+  const hoje = new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD
+  const { data: batidasHoje } = await supabaseClient
+    .from("registros_ponto")
+    .select("colaborador_id, tipo")
+    .gte("data_hora", `${hoje}T00:00:00`)
+    .lte("data_hora", `${hoje}T23:59:59`);
+
+  // Monta um mapa colaborador_id -> [tipos batidos hoje]
+  statusHoje = {};
+  (batidasHoje || []).forEach(b => {
+    if (!statusHoje[b.colaborador_id]) statusHoje[b.colaborador_id] = [];
+    statusHoje[b.colaborador_id].push(b.tipo);
+  });
+
   renderizarGrade(colaboradores);
 }
 
@@ -56,14 +74,20 @@ function renderizarGrade(lista) {
     elGradeColaboradores.innerHTML = `<p class="texto-suave">Nenhum colaborador encontrado.</p>`;
     return;
   }
-  elGradeColaboradores.innerHTML = lista.map(c => `
+  elGradeColaboradores.innerHTML = lista.map(c => {
+    const batidas = statusHoje[c.id] || [];
+    const st = calcularStatus(batidas);
+    return `
     <div class="cartao-colaborador" data-id="${c.id}">
       <div class="cartao-colaborador__avatar">
         ${c.foto_url ? `<img src="${c.foto_url}" alt="${c.nome}">` : iniciais(c.nome)}
       </div>
       <div class="cartao-colaborador__nome">${c.nome}</div>
+      <div class="cartao-colaborador__status" style="color:${st.cor};" title="${st.texto}">
+        ${st.emoji} <span>${st.texto}</span>
+      </div>
     </div>
-  `).join("");
+  `}).join("");
 
   document.querySelectorAll(".cartao-colaborador").forEach(el => {
     el.addEventListener("click", () => {
@@ -190,34 +214,47 @@ async function abrirEscolhaBatida() {
 const ORDEM_BATIDAS_SIMPLES = ["ENTRADA", "SAIDA_ALMOCO", "VOLTA_ALMOCO", "SAIDA"];
 const LABELS_BATIDAS_SIMPLES = {
   ENTRADA: "Entrada",
-  SAIDA_ALMOCO: "Saída para almoço",
-  VOLTA_ALMOCO: "Volta do almoço",
-  SAIDA: "Saída final"
+  SAIDA_ALMOCO: "Início do intervalo",
+  VOLTA_ALMOCO: "Fim do intervalo",
+  SAIDA: "Saída"
 };
 
+// Status derivado das batidas já feitas hoje
+function calcularStatus(jaFeitas) {
+  if (jaFeitas.includes("SAIDA"))         return { texto: "Fora do trabalho",  cor: "#888",    emoji: "🔴" };
+  if (jaFeitas.includes("VOLTA_ALMOCO"))  return { texto: "Trabalhando",        cor: "#4caf50", emoji: "🟢" };
+  if (jaFeitas.includes("SAIDA_ALMOCO"))  return { texto: "Em intervalo",       cor: "#ff9800", emoji: "🟡" };
+  if (jaFeitas.includes("ENTRADA"))       return { texto: "Trabalhando",        cor: "#4caf50", emoji: "🟢" };
+  return                                         { texto: "Não entrou ainda",   cor: "#888",    emoji: "⚪" };
+}
+
 async function mostrarOpcoesSimples() {
-  // Olha o que já foi batido hoje para sugerir o próximo passo
-  // (em vez de mostrar 4 botões iguais sem nenhuma pista).
   const { data: jaFeitasData } = await supabaseClient.rpc("batidas_hoje_colaborador", {
     p_colaborador_id: colaboradorSelecionado.id
   });
   const jaFeitas = Array.isArray(jaFeitasData) ? jaFeitasData : [];
   const proximaSugerida = ORDEM_BATIDAS_SIMPLES.find(t => !jaFeitas.includes(t)) || null;
+  const status = calcularStatus(jaFeitas);
 
   elModais.innerHTML = `
     <div class="modal-fundo" id="modal-opcoes-fundo">
       <div class="modal-pin">
         <h3>${colaboradorSelecionado.nome}</h3>
-        <p class="texto-suave texto-pequeno mt-8">
-          ${proximaSugerida
-            ? `Próximo registro de hoje: <strong style="color:var(--bsk-amarelo)">${LABELS_BATIDAS_SIMPLES[proximaSugerida]}</strong>`
-            : "Todos os registros de hoje já foram feitos. Se precisar bater de novo, escolha abaixo:"}
+        <p class="texto-suave texto-pequeno mt-4" style="display:flex;align-items:center;gap:6px;justify-content:center;">
+          <span>${status.emoji}</span>
+          <span style="color:${status.cor};font-weight:600;">${status.texto}</span>
         </p>
+        ${proximaSugerida ? `
+        <p class="texto-suave texto-pequeno mt-8">
+          Próximo registro: <strong style="color:var(--bsk-amarelo)">${LABELS_BATIDAS_SIMPLES[proximaSugerida]}</strong>
+        </p>` : `<p class="texto-suave texto-pequeno mt-8">Todos os registros de hoje já foram feitos.</p>`}
         <div class="stack mt-16">
           ${ORDEM_BATIDAS_SIMPLES.map(tipo => {
             const feita = jaFeitas.includes(tipo);
             const sugerida = tipo === proximaSugerida;
-            return `<button class="btn ${sugerida ? "btn--primario" : "btn--secundario"} btn--bloco" data-tipo="${tipo}">${feita ? "✓ " : ""}${LABELS_BATIDAS_SIMPLES[tipo]}${feita ? " — já registrada hoje" : ""}</button>`;
+            return `<button class="btn ${sugerida ? "btn--primario" : "btn--secundario"} btn--bloco" data-tipo="${tipo}">
+              ${feita ? "✓ " : ""}${LABELS_BATIDAS_SIMPLES[tipo]}${feita ? " — já registrado" : ""}
+            </button>`;
           }).join("")}
         </div>
         <button class="btn btn--ghost mt-16" id="btn-cancelar-opcoes">Cancelar</button>
@@ -356,8 +393,8 @@ function mostrarTelaCarregando() {
 
 function mostrarConfirmacao(offline) {
   const nomeBatida = {
-    ENTRADA: "Entrada", SAIDA_ALMOCO: "Saída para almoço",
-    VOLTA_ALMOCO: "Volta do almoço", SAIDA: "Saída",
+    ENTRADA: "Entrada", SAIDA_ALMOCO: "Início do intervalo",
+    VOLTA_ALMOCO: "Fim do intervalo", SAIDA: "Saída",
     ENTRADA_LIVRE: "Entrada", SAIDA_LIVRE: "Saída"
   }[tipoBatidaEscolhido] || "Ponto";
 
