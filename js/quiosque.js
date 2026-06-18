@@ -183,21 +183,42 @@ async function abrirEscolhaBatida() {
   if (tipoRegistro === "LIVRE") {
     mostrarOpcoesLivre();
   } else {
-    mostrarOpcoesSimples();
+    await mostrarOpcoesSimples();
   }
 }
 
-function mostrarOpcoesSimples() {
+const ORDEM_BATIDAS_SIMPLES = ["ENTRADA", "SAIDA_ALMOCO", "VOLTA_ALMOCO", "SAIDA"];
+const LABELS_BATIDAS_SIMPLES = {
+  ENTRADA: "Entrada",
+  SAIDA_ALMOCO: "Saída para almoço",
+  VOLTA_ALMOCO: "Volta do almoço",
+  SAIDA: "Saída final"
+};
+
+async function mostrarOpcoesSimples() {
+  // Olha o que já foi batido hoje para sugerir o próximo passo
+  // (em vez de mostrar 4 botões iguais sem nenhuma pista).
+  const { data: jaFeitasData } = await supabaseClient.rpc("batidas_hoje_colaborador", {
+    p_colaborador_id: colaboradorSelecionado.id
+  });
+  const jaFeitas = Array.isArray(jaFeitasData) ? jaFeitasData : [];
+  const proximaSugerida = ORDEM_BATIDAS_SIMPLES.find(t => !jaFeitas.includes(t)) || null;
+
   elModais.innerHTML = `
     <div class="modal-fundo" id="modal-opcoes-fundo">
       <div class="modal-pin">
         <h3>${colaboradorSelecionado.nome}</h3>
-        <p class="texto-suave texto-pequeno mt-8">Qual registro deseja fazer?</p>
+        <p class="texto-suave texto-pequeno mt-8">
+          ${proximaSugerida
+            ? `Próximo registro de hoje: <strong style="color:var(--bsk-amarelo)">${LABELS_BATIDAS_SIMPLES[proximaSugerida]}</strong>`
+            : "Todos os registros de hoje já foram feitos. Se precisar bater de novo, escolha abaixo:"}
+        </p>
         <div class="stack mt-16">
-          <button class="btn btn--primario btn--bloco" data-tipo="ENTRADA">Entrada</button>
-          <button class="btn btn--secundario btn--bloco" data-tipo="SAIDA_ALMOCO">Saída para almoço</button>
-          <button class="btn btn--secundario btn--bloco" data-tipo="VOLTA_ALMOCO">Volta do almoço</button>
-          <button class="btn btn--secundario btn--bloco" data-tipo="SAIDA">Saída final</button>
+          ${ORDEM_BATIDAS_SIMPLES.map(tipo => {
+            const feita = jaFeitas.includes(tipo);
+            const sugerida = tipo === proximaSugerida;
+            return `<button class="btn ${sugerida ? "btn--primario" : "btn--secundario"} btn--bloco" data-tipo="${tipo}">${feita ? "✓ " : ""}${LABELS_BATIDAS_SIMPLES[tipo]}${feita ? " — já registrada hoje" : ""}</button>`;
+          }).join("")}
         </div>
         <button class="btn btn--ghost mt-16" id="btn-cancelar-opcoes">Cancelar</button>
       </div>
