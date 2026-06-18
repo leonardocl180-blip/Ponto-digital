@@ -128,6 +128,15 @@ function abrirModalColaborador(colaborador) {
             </div>
           </div>
 
+          <div id="bloco-campos-mei" class="${c.vinculo === "MEI" ? "campos-mei--visivel" : ""} campos-mei">
+            <label class="bsk-label">Período do relatório</label>
+            <select id="f-periodo-mei" class="input">
+              <option value="SEMANAL">Semanal (segunda a domingo)</option>
+              <option value="QUINZENAL" selected>Quinzenal</option>
+            </select>
+            <p class="texto-suave texto-pequeno mt-8">Define o período sugerido ao gerar o relatório deste colaborador.</p>
+          </div>
+
           <div id="msg-erro-colab" class="texto-pequeno" style="color: var(--bsk-vermelho); min-height: 18px;"></div>
 
           <div class="row mt-8">
@@ -139,11 +148,26 @@ function abrirModalColaborador(colaborador) {
     </div>
   `;
 
-  // Alterna visibilidade dos campos de jornada conforme vínculo
+  // Alterna visibilidade dos campos de jornada (CLT) ou período (MEI) conforme vínculo
   const selectVinculo = document.getElementById("f-vinculo");
   selectVinculo.addEventListener("change", () => {
-    document.getElementById("bloco-campos-clt").classList.toggle("campos-clt--visivel", selectVinculo.value === "CLT");
+    const ehMei = selectVinculo.value === "MEI";
+    document.getElementById("bloco-campos-clt").classList.toggle("campos-clt--visivel", !ehMei);
+    document.getElementById("bloco-campos-mei").classList.toggle("campos-mei--visivel", ehMei);
   });
+
+  // Se for edição de um colaborador MEI que já tem período salvo, pré-seleciona
+  if (ehEdicao && c.vinculo === "MEI") {
+    supabaseClient
+      .from("config_relatorio_mei")
+      .select("periodo")
+      .eq("colaborador_id", c.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const selPeriodo = document.getElementById("f-periodo-mei");
+        if (data?.periodo && selPeriodo) selPeriodo.value = data.periodo;
+      });
+  }
 
   document.getElementById("btn-cancelar-colab").addEventListener("click", () => modais.innerHTML = "");
   document.getElementById("modal-colab-fundo").addEventListener("click", (e) => {
@@ -190,15 +214,30 @@ async function salvarColaborador(idExistente) {
   }
 
   let resultado;
+  let colaboradorId = idExistente;
+
   if (idExistente) {
     resultado = await supabaseClient.from("colaboradores").update(payload).eq("id", idExistente);
   } else {
-    resultado = await supabaseClient.from("colaboradores").insert(payload);
+    resultado = await supabaseClient.from("colaboradores").insert(payload).select("id").single();
+    if (!resultado.error) colaboradorId = resultado.data.id;
   }
 
   if (resultado.error) {
     erroEl.textContent = "Erro ao salvar: " + resultado.error.message;
     return;
+  }
+
+  // Período do relatório (semanal/quinzenal) só existe para MEI
+  if (vinculo === "MEI" && colaboradorId) {
+    const periodo = document.getElementById("f-periodo-mei").value;
+    const { error: erroPeriodo } = await supabaseClient
+      .from("config_relatorio_mei")
+      .upsert({ colaborador_id: colaboradorId, periodo });
+    if (erroPeriodo) {
+      erroEl.textContent = "Colaborador salvo, mas houve erro ao salvar o período: " + erroPeriodo.message;
+      return;
+    }
   }
 
   document.getElementById("camada-modais").innerHTML = "";

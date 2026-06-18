@@ -12,7 +12,7 @@ const { jsPDF } = window.jspdf;
 // ------------------------------------------------------------
 document.getElementById("select-colaborador-relatorio").addEventListener("change", atualizarOpcoesPeriodo);
 
-function atualizarOpcoesPeriodo() {
+async function atualizarOpcoesPeriodo() {
   const id = document.getElementById("select-colaborador-relatorio").value;
   const colaborador = colaboradoresCache.find(c => c.id === id);
   const container = document.getElementById("opcoes-periodo-relatorio");
@@ -42,6 +42,19 @@ function atualizarOpcoesPeriodo() {
         <input type="date" id="data-referencia-mei" class="input" value="${new Date().toISOString().slice(0,10)}">
       </div>
     `;
+
+    // Usa o período já configurado para este colaborador (aba Colaboradores),
+    // em vez de sempre cair no padrão "Quinzenal".
+    const { data } = await supabaseClient
+      .from("config_relatorio_mei")
+      .select("periodo")
+      .eq("colaborador_id", id)
+      .maybeSingle();
+
+    if (data?.periodo) {
+      const selPeriodo = document.getElementById("periodo-mei");
+      if (selPeriodo) selPeriodo.value = data.periodo;
+    }
   }
 }
 
