@@ -238,6 +238,28 @@ $$;
 grant execute on function tipo_registro_colaborador(uuid) to anon, authenticated;
 
 -- ------------------------------------------------------------
+-- Função RPC: retorna os tipos de batida já registrados HOJE
+-- (fuso de Brasília) para um colaborador. Usada pelo quiosque
+-- para sugerir automaticamente o próximo registro esperado
+-- (Entrada -> Saída almoço -> Volta almoço -> Saída), em vez de
+-- deixar o colaborador adivinhar qual botão apertar.
+-- ------------------------------------------------------------
+create or replace function batidas_hoje_colaborador(p_colaborador_id uuid)
+returns text[]
+language sql
+security definer
+stable
+as $$
+  select coalesce(array_agg(tipo::text order by data_hora), '{}')
+  from registros_ponto
+  where colaborador_id = p_colaborador_id
+    and (data_hora at time zone 'America/Sao_Paulo')::date
+        = (now() at time zone 'America/Sao_Paulo')::date
+$$;
+
+grant execute on function batidas_hoje_colaborador(uuid) to anon, authenticated;
+
+-- ------------------------------------------------------------
 -- POLÍTICAS: registros_ponto
 -- - Inserção pública (anon) liberada: é o próprio quiosque
 --   batendo o ponto, sem login. Validação do colaborador_id
