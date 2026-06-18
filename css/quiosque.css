@@ -1,0 +1,225 @@
+/* ============================================================
+   Tela do quiosque — seleção de colaborador + PIN + foto
+   ============================================================ */
+
+.quiosque-relogio {
+  text-align: center;
+  margin: 8px 0 32px;
+}
+.quiosque-relogio__hora {
+  font-family: var(--fonte-display);
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--bsk-amarelo);
+  line-height: 1;
+}
+.quiosque-relogio__data {
+  font-size: 14px;
+  color: var(--bsk-texto-suave);
+  margin-top: 6px;
+  text-transform: capitalize;
+}
+
+.grade-colaboradores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.cartao-colaborador {
+  background: var(--bsk-cinza-card);
+  border: 1px solid var(--bsk-cinza-borda);
+  border-radius: var(--raio-grande);
+  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.cartao-colaborador:hover {
+  border-color: var(--bsk-amarelo);
+  transform: translateY(-2px);
+}
+.cartao-colaborador:active { transform: scale(0.98); }
+
+.cartao-colaborador__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--bsk-preto-suave);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--fonte-display);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--bsk-amarelo);
+  overflow: hidden;
+}
+.cartao-colaborador__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cartao-colaborador__nome {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------
+   Modal de PIN
+   ------------------------------------------------------------ */
+.modal-fundo {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal-pin {
+  background: var(--bsk-cinza-card);
+  border: 1px solid var(--bsk-cinza-borda);
+  border-radius: var(--raio-grande);
+  padding: 32px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+}
+
+.modal-pin__avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--bsk-preto-suave);
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--fonte-display);
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--bsk-amarelo);
+  overflow: hidden;
+}
+.modal-pin__avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+.pin-pontos {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+.pin-ponto {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--bsk-cinza-borda);
+  transition: background 0.1s, border-color 0.1s;
+}
+.pin-ponto--preenchido {
+  background: var(--bsk-amarelo);
+  border-color: var(--bsk-amarelo);
+}
+
+.teclado-numerico {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.tecla {
+  background: var(--bsk-preto-suave);
+  border: 1px solid var(--bsk-cinza-borda);
+  color: var(--bsk-texto);
+  font-size: 20px;
+  font-weight: 600;
+  padding: 16px 0;
+  border-radius: var(--raio-medio);
+  cursor: pointer;
+}
+.tecla:active { background: var(--bsk-cinza-borda); }
+.tecla--acao { color: var(--bsk-texto-suave); font-size: 14px; }
+
+.pin-erro {
+  color: var(--bsk-vermelho);
+  font-size: 13px;
+  margin-top: 10px;
+  min-height: 18px;
+}
+
+/* ------------------------------------------------------------
+   Captura de foto
+   ------------------------------------------------------------ */
+.camera-wrap {
+  position: relative;
+  border-radius: var(--raio-grande);
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 4/3;
+}
+.camera-wrap video,
+.camera-wrap canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ------------------------------------------------------------
+   Escolha de tipo de batida (modo livre) e confirmação
+   ------------------------------------------------------------ */
+.opcoes-batida {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.tela-confirmacao {
+  text-align: center;
+}
+.tela-confirmacao__icone {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(62,207,142,0.15);
+  color: var(--bsk-verde);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  margin: 0 auto 16px;
+}
+
+/* Link discreto para área administrativa */
+.link-admin {
+  position: fixed;
+  bottom: 14px;
+  right: 18px;
+  font-size: 12px;
+  color: #555;
+  text-decoration: none;
+  padding: 6px 10px;
+}
+.link-admin:hover { color: var(--bsk-texto-suave); }
+
+.busca-colaborador {
+  max-width: 360px;
+  margin: 0 auto 24px;
+}
+
+@media (max-width: 480px) {
+  .quiosque-relogio__hora { font-size: 42px; }
+  .grade-colaboradores { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+}

@@ -1,0 +1,221 @@
+/* ============================================================
+   BLACK SKULL BIER — Sistema de Ponto
+   Tokens visuais: preto predominante + amarelo de destaque,
+   estilo moderno/clean, cantos arredondados, bastante respiro.
+   ============================================================ */
+
+:root {
+  /* Paleta */
+  --bsk-preto: #121212;
+  --bsk-preto-suave: #1c1c1c;
+  --bsk-cinza-card: #232323;
+  --bsk-cinza-borda: #333333;
+  --bsk-amarelo: #ffc400;
+  --bsk-amarelo-hover: #ffd84d;
+  --bsk-texto: #f5f5f0;
+  --bsk-texto-suave: #a8a8a0;
+  --bsk-verde: #3ecf8e;
+  --bsk-vermelho: #ff5d5d;
+
+  /* Tipografia */
+  --fonte-display: 'Sora', sans-serif;
+  --fonte-corpo: 'Inter', sans-serif;
+
+  /* Raio e espaçamento */
+  --raio-grande: 20px;
+  --raio-medio: 14px;
+  --raio-pequeno: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bsk-preto);
+  color: var(--bsk-texto);
+  font-family: var(--fonte-corpo);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--fonte-display);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+a { color: inherit; }
+
+/* ------------------------------------------------------------
+   Header comum (logo Black Skull)
+   ------------------------------------------------------------ */
+.bsk-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 28px;
+}
+
+.bsk-header__logo {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--raio-pequeno);
+  background: var(--bsk-amarelo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: var(--bsk-preto);
+  font-family: var(--fonte-display);
+  font-size: 18px;
+}
+
+.bsk-header__nome {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--bsk-texto);
+}
+
+.bsk-header__sub {
+  font-size: 12px;
+  color: var(--bsk-texto-suave);
+  margin-top: -2px;
+}
+
+/* ------------------------------------------------------------
+   Botões
+   ------------------------------------------------------------ */
+.btn {
+  font-family: var(--fonte-corpo);
+  font-weight: 600;
+  font-size: 15px;
+  padding: 13px 22px;
+  border-radius: var(--raio-medio);
+  border: none;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn--primario {
+  background: var(--bsk-amarelo);
+  color: var(--bsk-preto);
+}
+.btn--primario:hover { background: var(--bsk-amarelo-hover); }
+
+.btn--secundario {
+  background: var(--bsk-cinza-card);
+  color: var(--bsk-texto);
+  border: 1px solid var(--bsk-cinza-borda);
+}
+.btn--secundario:hover { border-color: var(--bsk-amarelo); }
+
+.btn--ghost {
+  background: transparent;
+  color: var(--bsk-texto-suave);
+  font-size: 13px;
+  padding: 8px 14px;
+}
+.btn--ghost:hover { color: var(--bsk-amarelo); }
+
+.btn--bloco { width: 100%; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ------------------------------------------------------------
+   Cards e inputs
+   ------------------------------------------------------------ */
+.card {
+  background: var(--bsk-cinza-card);
+  border: 1px solid var(--bsk-cinza-borda);
+  border-radius: var(--raio-grande);
+  padding: 28px;
+}
+
+.input {
+  width: 100%;
+  background: var(--bsk-preto-suave);
+  border: 1px solid var(--bsk-cinza-borda);
+  color: var(--bsk-texto);
+  padding: 13px 16px;
+  border-radius: var(--raio-medio);
+  font-size: 15px;
+  font-family: var(--fonte-corpo);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--bsk-amarelo);
+}
+
+label.bsk-label {
+  font-size: 13px;
+  color: var(--bsk-texto-suave);
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* ------------------------------------------------------------
+   Badges / status
+   ------------------------------------------------------------ */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.badge--clt { background: rgba(62,207,142,0.15); color: var(--bsk-verde); }
+.badge--mei { background: rgba(255,196,0,0.15); color: var(--bsk-amarelo); }
+.badge--alerta { background: rgba(255,93,93,0.15); color: var(--bsk-vermelho); }
+
+/* ------------------------------------------------------------
+   Tabelas (painel)
+   ------------------------------------------------------------ */
+table.bsk-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+table.bsk-tabela th {
+  text-align: left;
+  color: var(--bsk-texto-suave);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bsk-cinza-borda);
+}
+table.bsk-tabela td {
+  padding: 12px;
+  border-bottom: 1px solid var(--bsk-cinza-borda);
+}
+table.bsk-tabela tr:last-child td { border-bottom: none; }
+
+/* ------------------------------------------------------------
+   Utilidades de layout
+   ------------------------------------------------------------ */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.center-tela {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.row { display: flex; align-items: center; gap: 12px; }
+.row--entre { justify-content: space-between; }
+.flex-1 { flex: 1; }
+
+.texto-suave { color: var(--bsk-texto-suave); }
+.texto-pequeno { font-size: 13px; }
+.mt-8 { margin-top: 8px; }
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
