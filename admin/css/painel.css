@@ -46,6 +46,7 @@
 
 .painel-conteudo {
   flex: 1;
+  min-width: 0;
   padding: 28px 32px;
   max-width: 1100px;
 }
@@ -98,7 +99,9 @@
   background: var(--bsk-cinza-card);
   border: 1px solid var(--bsk-cinza-borda);
   border-radius: var(--raio-grande);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 .tabela-wrap table.bsk-tabela { padding: 0 8px; }
 
