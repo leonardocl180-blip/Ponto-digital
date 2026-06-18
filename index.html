@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Black Skull Bier — Ponto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/global.css">
+<link rel="stylesheet" href="css/quiosque.css">
+</head>
+<body>
+
+  <header class="bsk-header">
+    <div class="bsk-header__logo">BS</div>
+    <div>
+      <div class="bsk-header__nome">Black Skull Bier</div>
+      <div class="bsk-header__sub">Controle de ponto</div>
+    </div>
+  </header>
+
+  <main class="container" style="padding-top: 12px; padding-bottom: 80px;">
+
+    <div class="quiosque-relogio">
+      <div class="quiosque-relogio__hora" id="relogio-hora">--:--</div>
+      <div class="quiosque-relogio__data" id="relogio-data">carregando...</div>
+    </div>
+
+    <div class="busca-colaborador">
+      <input type="text" id="busca-input" class="input" placeholder="Buscar pelo nome...">
+    </div>
+
+    <div class="grade-colaboradores" id="grade-colaboradores">
+      <p class="texto-suave">Carregando colaboradores...</p>
+    </div>
+
+  </main>
+
+  <a href="admin/login.html" class="link-admin">Área administrativa</a>
+
+  <div id="camada-modais"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/supabase-client.js"></script>
+  <script src="js/quiosque.js"></script>
+</body>
+</html>
