@@ -151,6 +151,15 @@ label.bsk-label {
   margin-bottom: 6px;
   display: block;
 }
+label.bsk-label--pequeno {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--bsk-texto-suave);
+  margin-bottom: 4px;
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 
 /* ------------------------------------------------------------
    Badges / status
