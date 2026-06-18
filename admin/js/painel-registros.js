@@ -71,6 +71,7 @@ async function carregarRegistros() {
         <td class="texto-pequeno texto-suave">${r.origem === "OFFLINE_SYNC" ? "Sincronizado (offline)" : "Online"}</td>
         <td>
           <div class="acoes-linha">
+            ${r.foto_url ? `<button data-acao="ver-foto" data-url="${r.foto_url}">Foto</button>` : ""}
             <button data-acao="editar-registro" data-id="${r.id}" data-datahora="${r.data_hora}">Editar</button>
             <button data-acao="excluir-registro" data-id="${r.id}">Excluir</button>
           </div>
@@ -79,11 +80,31 @@ async function carregarRegistros() {
     `;
   }).join("");
 
+  tbody.querySelectorAll("[data-acao='ver-foto']").forEach(btn => {
+    btn.addEventListener("click", () => abrirFotoRegistro(btn.getAttribute("data-url")));
+  });
   tbody.querySelectorAll("[data-acao='editar-registro']").forEach(btn => {
     btn.addEventListener("click", () => editarRegistro(btn.getAttribute("data-id"), btn.getAttribute("data-datahora")));
   });
   tbody.querySelectorAll("[data-acao='excluir-registro']").forEach(btn => {
     btn.addEventListener("click", () => excluirRegistro(btn.getAttribute("data-id")));
+  });
+}
+
+function abrirFotoRegistro(url) {
+  const modais = document.getElementById("camada-modais");
+  modais.innerHTML = `
+    <div class="modal-fundo" id="modal-foto-fundo">
+      <div class="card modal-form" style="text-align:center;">
+        <h3>Foto da batida</h3>
+        <img src="${url}" alt="Foto registrada na batida de ponto" style="max-width:100%; border-radius: var(--raio-medio); margin-top:16px;">
+        <button type="button" class="btn btn--secundario btn--bloco mt-16" id="btn-fechar-foto">Fechar</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("btn-fechar-foto").addEventListener("click", () => modais.innerHTML = "");
+  document.getElementById("modal-foto-fundo").addEventListener("click", (e) => {
+    if (e.target.id === "modal-foto-fundo") modais.innerHTML = "";
   });
 }
 
