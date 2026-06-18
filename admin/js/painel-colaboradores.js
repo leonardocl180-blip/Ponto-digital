@@ -101,8 +101,8 @@ function abrirModalColaborador(colaborador) {
             <div class="flex-1">
               <label class="bsk-label">Tipo de registro</label>
               <select id="f-tipo-registro" class="input">
-                <option value="SIMPLES" ${c.tipo_registro === "SIMPLES" ? "selected" : ""}>Entrada/Saída</option>
-                <option value="LIVRE" ${c.tipo_registro === "LIVRE" ? "selected" : ""}>Múltiplas batidas</option>
+                <option value="SIMPLES" ${c.tipo_registro === "SIMPLES" ? "selected" : ""}>Com intervalo (CLT)</option>
+                <option value="LIVRE" ${c.tipo_registro === "LIVRE" ? "selected" : ""}>Múltiplas batidas (MEI)</option>
               </select>
             </div>
           </div>
@@ -110,12 +110,24 @@ function abrirModalColaborador(colaborador) {
           <div id="bloco-campos-clt" class="${c.vinculo === "CLT" ? "campos-clt--visivel" : ""} campos-clt">
             <label class="bsk-label">Jornada fixa</label>
             <div class="row">
-              <input type="time" id="f-entrada" class="input" value="${c.horario_entrada?.slice(0,5) || ""}">
-              <input type="time" id="f-saida-almoco" class="input" value="${c.horario_saida_almoco?.slice(0,5) || ""}">
+              <div class="flex-1">
+                <label class="bsk-label bsk-label--pequeno">Entrada</label>
+                <input type="time" id="f-entrada" class="input" value="${c.horario_entrada?.slice(0,5) || ""}">
+              </div>
+              <div class="flex-1">
+                <label class="bsk-label bsk-label--pequeno">Início intervalo</label>
+                <input type="time" id="f-saida-almoco" class="input" value="${c.horario_saida_almoco?.slice(0,5) || ""}">
+              </div>
             </div>
             <div class="row mt-8">
-              <input type="time" id="f-volta-almoco" class="input" value="${c.horario_volta_almoco?.slice(0,5) || ""}">
-              <input type="time" id="f-saida" class="input" value="${c.horario_saida?.slice(0,5) || ""}">
+              <div class="flex-1">
+                <label class="bsk-label bsk-label--pequeno">Fim intervalo</label>
+                <input type="time" id="f-volta-almoco" class="input" value="${c.horario_volta_almoco?.slice(0,5) || ""}">
+              </div>
+              <div class="flex-1">
+                <label class="bsk-label bsk-label--pequeno">Saída</label>
+                <input type="time" id="f-saida" class="input" value="${c.horario_saida?.slice(0,5) || ""}">
+              </div>
             </div>
             <label class="bsk-label mt-16">Dias de trabalho</label>
             <div class="checkbox-dias" id="checkbox-dias">
