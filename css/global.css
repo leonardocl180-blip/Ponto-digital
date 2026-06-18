@@ -185,10 +185,12 @@ table.bsk-tabela th {
   letter-spacing: 0.03em;
   padding: 10px 12px;
   border-bottom: 1px solid var(--bsk-cinza-borda);
+  white-space: nowrap;
 }
 table.bsk-tabela td {
   padding: 12px;
   border-bottom: 1px solid var(--bsk-cinza-borda);
+  white-space: nowrap;
 }
 table.bsk-tabela tr:last-child td { border-bottom: none; }
 
