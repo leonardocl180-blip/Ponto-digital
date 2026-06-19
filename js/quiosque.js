@@ -103,6 +103,47 @@ function renderizarGrade(lista) {
   });
 }
 
+// ------------------------------------------------------------
+// Atualiza apenas os status (pontos coloridos) nos cartões,
+// sem recriar a grade inteira. Chamado a cada 30 segundos.
+// ------------------------------------------------------------
+async function atualizarStatus() {
+  const agora = new Date();
+  const offsetBRT = 3 * 60 * 60 * 1000;
+  const agora_brt = new Date(agora.getTime() - offsetBRT);
+  const hoje_brt = agora_brt.toISOString().slice(0, 10);
+  const inicioDia = new Date(`${hoje_brt}T03:00:00.000Z`);
+  const fimDia    = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
+
+  const { data: batidasHoje } = await supabaseClient
+    .from("registros_ponto")
+    .select("colaborador_id, tipo")
+    .gte("data_hora", inicioDia.toISOString())
+    .lt("data_hora", fimDia.toISOString());
+
+  statusHoje = {};
+  (batidasHoje || []).forEach(b => {
+    if (!statusHoje[b.colaborador_id]) statusHoje[b.colaborador_id] = [];
+    statusHoje[b.colaborador_id].push(b.tipo);
+  });
+
+  // Atualiza só os elementos de status já existentes nos cartões
+  // (sem recriar o DOM, para não perder o foco/scroll do usuário)
+  document.querySelectorAll(".cartao-colaborador[data-id]").forEach(cartao => {
+    const id = cartao.getAttribute("data-id");
+    const batidas = statusHoje[id] || [];
+    const st = calcularStatus(batidas);
+    const elStatus = cartao.querySelector(".cartao-colaborador__status");
+    if (elStatus) {
+      elStatus.style.color = st.cor;
+      elStatus.title = st.texto;
+      elStatus.innerHTML = `${st.emoji} <span>${st.texto}</span>`;
+    }
+  });
+}
+
+setInterval(atualizarStatus, 30 * 1000);
+
 elBuscaInput.addEventListener("input", () => {
   const termo = elBuscaInput.value.trim().toLowerCase();
   const filtrados = colaboradores.filter(c => c.nome.toLowerCase().includes(termo));
@@ -439,6 +480,10 @@ function mostrarConfirmacao(offline) {
     </div>
   `;
   document.getElementById("btn-fechar-confirmacao").addEventListener("click", fecharModais);
+
+  // Atualiza os status dos cartões imediatamente após a batida,
+  // sem esperar o intervalo de 30 segundos
+  atualizarStatus();
 
   setTimeout(() => {
     if (document.getElementById("btn-fechar-confirmacao")) fecharModais();
