@@ -46,14 +46,19 @@ async function carregarColaboradores() {
 
   colaboradores = data || [];
 
-  // Busca todas as batidas de hoje em uma única query para
-  // mostrar o status de cada funcionário já nos cartões.
-  const hoje = new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD
+  // Busca todas as batidas de hoje em BRT (UTC-3) em uma única query
+  const agora = new Date();
+  const offsetBRT = 3 * 60 * 60 * 1000; // BRT = UTC-3
+  const agora_brt = new Date(agora.getTime() - offsetBRT);
+  const hoje_brt = agora_brt.toISOString().slice(0, 10); // YYYY-MM-DD em BRT
+  const inicioDia = new Date(`${hoje_brt}T03:00:00.000Z`); // 00:00 BRT = 03:00 UTC
+  const fimDia    = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
+
   const { data: batidasHoje } = await supabaseClient
     .from("registros_ponto")
     .select("colaborador_id, tipo")
-    .gte("data_hora", `${hoje}T00:00:00`)
-    .lte("data_hora", `${hoje}T23:59:59`);
+    .gte("data_hora", inicioDia.toISOString())
+    .lt("data_hora", fimDia.toISOString());
 
   // Monta um mapa colaborador_id -> [tipos batidos hoje]
   statusHoje = {};
@@ -205,7 +210,7 @@ async function abrirEscolhaBatida() {
   if (!error && data) tipoRegistro = data;
 
   if (tipoRegistro === "LIVRE") {
-    mostrarOpcoesLivre();
+    await mostrarOpcoesLivre();
   } else {
     await mostrarOpcoesSimples();
   }
@@ -216,47 +221,82 @@ const LABELS_BATIDAS_SIMPLES = {
   ENTRADA: "Entrada",
   SAIDA_ALMOCO: "Início do intervalo",
   VOLTA_ALMOCO: "Fim do intervalo",
-  SAIDA: "Saída"
+  SAIDA: "Saída",
+  ENTRADA_LIVRE: "Entrada",
+  SAIDA_LIVRE: "Saída"
 };
 
 // Status derivado das batidas já feitas hoje
 function calcularStatus(jaFeitas) {
-  if (jaFeitas.includes("SAIDA"))         return { texto: "Fora do trabalho",  cor: "#888",    emoji: "🔴" };
-  if (jaFeitas.includes("VOLTA_ALMOCO"))  return { texto: "Trabalhando",        cor: "#4caf50", emoji: "🟢" };
-  if (jaFeitas.includes("SAIDA_ALMOCO"))  return { texto: "Em intervalo",       cor: "#ff9800", emoji: "🟡" };
-  if (jaFeitas.includes("ENTRADA"))       return { texto: "Trabalhando",        cor: "#4caf50", emoji: "🟢" };
-  return                                         { texto: "Não entrou ainda",   cor: "#888",    emoji: "⚪" };
+  if (jaFeitas.includes("SAIDA") || jaFeitas.includes("SAIDA_LIVRE"))
+    return { texto: "Fora do trabalho", cor: "#888",    emoji: "🔴" };
+  if (jaFeitas.includes("VOLTA_ALMOCO"))
+    return { texto: "Trabalhando",      cor: "#4caf50", emoji: "🟢" };
+  if (jaFeitas.includes("SAIDA_ALMOCO"))
+    return { texto: "Em intervalo",     cor: "#ff9800", emoji: "🟡" };
+  if (jaFeitas.includes("ENTRADA") || jaFeitas.includes("ENTRADA_LIVRE"))
+    return { texto: "Trabalhando",      cor: "#4caf50", emoji: "🟢" };
+  return { texto: "Não entrou ainda",   cor: "#888",    emoji: "⚪" };
 }
 
-async function mostrarOpcoesSimples() {
+// Detecta automaticamente o próximo tipo de batida
+function detectarProximoBatida(jaFeitas, modoLivre) {
+  if (modoLivre) {
+    // MEI: alterna entrada/saída. Se o último foi entrada → próxima é saída
+    const ultimaLivre = [...jaFeitas].reverse().find(t => t === "ENTRADA_LIVRE" || t === "SAIDA_LIVRE");
+    return ultimaLivre === "ENTRADA_LIVRE" ? "SAIDA_LIVRE" : "ENTRADA_LIVRE";
+  }
+  return ORDEM_BATIDAS_SIMPLES.find(t => !jaFeitas.includes(t)) || null;
+}
+
+async function mostrarConfirmacaoBatida(modoLivre) {
   const { data: jaFeitasData } = await supabaseClient.rpc("batidas_hoje_colaborador", {
     p_colaborador_id: colaboradorSelecionado.id
   });
   const jaFeitas = Array.isArray(jaFeitasData) ? jaFeitasData : [];
-  const proximaSugerida = ORDEM_BATIDAS_SIMPLES.find(t => !jaFeitas.includes(t)) || null;
+  const proximaTipo = detectarProximoBatida(jaFeitas, modoLivre);
   const status = calcularStatus(jaFeitas);
+  const labelProxima = proximaTipo ? LABELS_BATIDAS_SIMPLES[proximaTipo] : null;
 
   elModais.innerHTML = `
     <div class="modal-fundo" id="modal-opcoes-fundo">
       <div class="modal-pin">
         <h3>${colaboradorSelecionado.nome}</h3>
-        <p class="texto-suave texto-pequeno mt-4" style="display:flex;align-items:center;gap:6px;justify-content:center;">
+        <p style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:6px;">
           <span>${status.emoji}</span>
-          <span style="color:${status.cor};font-weight:600;">${status.texto}</span>
+          <span style="color:${status.cor};font-weight:600;font-size:14px;">${status.texto}</span>
         </p>
-        ${proximaSugerida ? `
-        <p class="texto-suave texto-pequeno mt-8">
-          Próximo registro: <strong style="color:var(--bsk-amarelo)">${LABELS_BATIDAS_SIMPLES[proximaSugerida]}</strong>
-        </p>` : `<p class="texto-suave texto-pequeno mt-8">Todos os registros de hoje já foram feitos.</p>`}
-        <div class="stack mt-16">
-          ${ORDEM_BATIDAS_SIMPLES.map(tipo => {
-            const feita = jaFeitas.includes(tipo);
-            const sugerida = tipo === proximaSugerida;
-            return `<button class="btn ${sugerida ? "btn--primario" : "btn--secundario"} btn--bloco" data-tipo="${tipo}">
-              ${feita ? "✓ " : ""}${LABELS_BATIDAS_SIMPLES[tipo]}${feita ? " — já registrado" : ""}
-            </button>`;
-          }).join("")}
-        </div>
+
+        ${labelProxima ? `
+          <div style="margin:20px 0 8px;text-align:center;">
+            <p class="texto-suave texto-pequeno">Registrar agora:</p>
+            <p style="font-size:20px;font-weight:700;color:var(--bsk-amarelo);margin-top:4px;">${labelProxima}</p>
+          </div>
+          <button class="btn btn--primario btn--bloco" id="btn-confirmar-batida" data-tipo="${proximaTipo}">
+            ✓ Confirmar
+          </button>
+          <details style="margin-top:12px;text-align:center;">
+            <summary class="texto-suave texto-pequeno" style="cursor:pointer;list-style:none;">Registrar outro tipo</summary>
+            <div class="stack mt-12">
+              ${(modoLivre
+                ? ["ENTRADA_LIVRE","SAIDA_LIVRE"]
+                : ORDEM_BATIDAS_SIMPLES
+              ).filter(t => t !== proximaTipo).map(tipo => `
+                <button class="btn btn--secundario btn--bloco" data-tipo="${tipo}">${LABELS_BATIDAS_SIMPLES[tipo]}</button>
+              `).join("")}
+            </div>
+          </details>
+        ` : `
+          <p class="texto-suave texto-pequeno mt-16" style="text-align:center;">
+            Todos os registros de hoje já foram feitos.<br>Se precisar corrigir, escolha abaixo:
+          </p>
+          <div class="stack mt-12">
+            ${(modoLivre ? ["ENTRADA_LIVRE","SAIDA_LIVRE"] : ORDEM_BATIDAS_SIMPLES)
+              .map(tipo => `<button class="btn btn--secundario btn--bloco" data-tipo="${tipo}">${LABELS_BATIDAS_SIMPLES[tipo]}</button>`)
+              .join("")}
+          </div>
+        `}
+
         <button class="btn btn--ghost mt-16" id="btn-cancelar-opcoes">Cancelar</button>
       </div>
     </div>
@@ -264,22 +304,9 @@ async function mostrarOpcoesSimples() {
   ligarBotoesOpcoes();
 }
 
-function mostrarOpcoesLivre() {
-  elModais.innerHTML = `
-    <div class="modal-fundo" id="modal-opcoes-fundo">
-      <div class="modal-pin">
-        <h3>${colaboradorSelecionado.nome}</h3>
-        <p class="texto-suave texto-pequeno mt-8">Registrar entrada ou saída?</p>
-        <div class="opcoes-batida mt-16">
-          <button class="btn btn--primario" data-tipo="ENTRADA_LIVRE">Entrada</button>
-          <button class="btn btn--secundario" data-tipo="SAIDA_LIVRE">Saída</button>
-        </div>
-        <button class="btn btn--ghost mt-16" id="btn-cancelar-opcoes">Cancelar</button>
-      </div>
-    </div>
-  `;
-  ligarBotoesOpcoes();
-}
+// Mantido por compatibilidade — agora ambos usam a função unificada
+async function mostrarOpcoesSimples() { await mostrarConfirmacaoBatida(false); }
+async function mostrarOpcoesLivre()   { await mostrarConfirmacaoBatida(true);  }
 
 function ligarBotoesOpcoes() {
   document.querySelectorAll("[data-tipo]").forEach(btn => {
