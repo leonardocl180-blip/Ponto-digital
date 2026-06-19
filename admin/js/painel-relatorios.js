@@ -89,6 +89,13 @@ function formatarDataBR(d) {
   return d.toLocaleDateString("pt-BR");
 }
 
+// Converte um timestamp ISO (UTC) para a data no fuso de Brasília (UTC-3).
+// Ex.: "2026-06-19T02:30:00Z" → "2026-06-18" (22:30 BRT ainda era dia 18)
+function dataBRT(isoStr) {
+  return new Date(new Date(isoStr).getTime() - 3 * 60 * 60 * 1000)
+    .toISOString().slice(0, 10);
+}
+
 function gerarListaDias(inicio, fim) {
   const dias = [];
   const cursor = new Date(inicio);
@@ -161,12 +168,15 @@ async function gerarPdfClt(colaborador, anoMes) {
   const inicio = new Date(ano, mes - 1, 1);
   const fim = new Date(ano, mes, 0);
 
+  // Busca até o dia seguinte ao fim do mês para capturar saídas após meia-noite BRT
+  const fimQuery = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate() + 1, 5, 59, 59);
+
   const { data: registros } = await supabaseClient
     .from("registros_ponto")
     .select("*")
     .eq("colaborador_id", colaborador.id)
     .gte("data_hora", inicio.toISOString())
-    .lte("data_hora", new Date(fim.getFullYear(), fim.getMonth(), fim.getDate(), 23, 59, 59).toISOString())
+    .lte("data_hora", fimQuery.toISOString())
     .order("data_hora");
 
   const { data: ausencias } = await supabaseClient
@@ -193,19 +203,29 @@ async function gerarPdfClt(colaborador, anoMes) {
     return totalMin / 60;
   })();
 
+  // Ordena todos os registros cronologicamente para encontrar pares entrada→saída
+  const todosOrdenados = [...(registros || [])].sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
+
   for (const dia of dias) {
-    const diaStr = dia.toISOString().slice(0,10);
+    // Usa data em BRT (não UTC) para comparação correta
+    const diaStr = `${dia.getFullYear()}-${String(dia.getMonth()+1).padStart(2,"0")}-${String(dia.getDate()).padStart(2,"0")}`;
     const diaSemana = dia.getDay();
     const trabalhaEsteDia = (colaborador.dias_trabalho || [1,2,3,4,5]).includes(diaSemana);
 
     const ausenciaDoDia = ausencias?.find(a => a.data === diaStr);
-    const registrosDoDia = (registros || []).filter(r => r.data_hora.slice(0,10) === diaStr);
 
-    const pegar = (tipo) => registrosDoDia.find(r => r.tipo === tipo);
-    const entrada = pegar("ENTRADA");
-    const saidaAlmoco = pegar("SAIDA_ALMOCO");
-    const voltaAlmoco = pegar("VOLTA_ALMOCO");
-    const saida = pegar("SAIDA");
+    // Encontra ENTRADA cujo dia BRT coincide com o dia atual
+    const entrada = todosOrdenados.find(r => r.tipo === "ENTRADA" && dataBRT(r.data_hora) === diaStr);
+
+    // SAIDA, SAIDA_ALMOCO, VOLTA_ALMOCO: busca o primeiro de cada tipo
+    // que venha DEPOIS da entrada (cobrindo virada de meia-noite)
+    const aposEntrada = entrada
+      ? todosOrdenados.filter(r => new Date(r.data_hora) > new Date(entrada.data_hora))
+      : [];
+
+    const saida       = aposEntrada.find(r => r.tipo === "SAIDA");
+    const saidaAlmoco = aposEntrada.find(r => r.tipo === "SAIDA_ALMOCO");
+    const voltaAlmoco = aposEntrada.find(r => r.tipo === "VOLTA_ALMOCO");
 
     let horasNoDia = 0;
     if (entrada && saida) {
@@ -279,44 +299,70 @@ async function gerarPdfClt(colaborador, anoMes) {
 // ------------------------------------------------------------
 async function gerarPdfMei(colaborador, periodo, dataRefStr) {
   const { inicio, fim } = calcularPeriodoMei(dataRefStr, periodo);
+  const fimQuery = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate() + 1, 5, 59, 59);
 
-  const { data: registros } = await supabaseClient
-    .from("registros_ponto")
-    .select("*")
-    .eq("colaborador_id", colaborador.id)
-    .gte("data_hora", inicio.toISOString())
-    .lte("data_hora", new Date(fim.getFullYear(), fim.getMonth(), fim.getDate(), 23, 59, 59).toISOString())
-    .order("data_hora");
+  const [{ data: registros }, { data: configMei }] = await Promise.all([
+    supabaseClient
+      .from("registros_ponto")
+      .select("*")
+      .eq("colaborador_id", colaborador.id)
+      .gte("data_hora", inicio.toISOString())
+      .lte("data_hora", fimQuery.toISOString())
+      .order("data_hora"),
+    supabaseClient
+      .from("config_relatorio_mei")
+      .select("valor_hora")
+      .eq("colaborador_id", colaborador.id)
+      .maybeSingle()
+  ]);
+
+  const valorHora = configMei?.valor_hora ?? null;
 
   const dias = gerarListaDias(inicio, fim);
   const linhas = [];
   let totalHoras = 0;
 
+  const todosOrdenadosMei = [...(registros || [])].sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
+
   for (const dia of dias) {
-    const diaStr = dia.toISOString().slice(0,10);
-    const registrosDoDia = (registros || []).filter(r => r.data_hora.slice(0,10) === diaStr);
+    const diaStr = `${dia.getFullYear()}-${String(dia.getMonth()+1).padStart(2,"0")}-${String(dia.getDate()).padStart(2,"0")}`;
 
-    // Modo livre: pode ter múltiplos pares entrada/saída no dia
-    const entradas = registrosDoDia.filter(r => r.tipo === "ENTRADA_LIVRE" || r.tipo === "ENTRADA");
-    const saidas = registrosDoDia.filter(r => r.tipo === "SAIDA_LIVRE" || r.tipo === "SAIDA");
+    // Todas as entradas cujo dia BRT coincide com hoje
+    const entradas = todosOrdenadosMei.filter(r =>
+      (r.tipo === "ENTRADA_LIVRE" || r.tipo === "ENTRADA") && dataBRT(r.data_hora) === diaStr
+    );
 
+    // Para cada entrada, busca a primeira saída que vem depois dela
+    // (pode cruzar meia-noite BRT)
     let horasNoDia = 0;
-    const n = Math.min(entradas.length, saidas.length);
-    for (let i = 0; i < n; i++) {
-      horasNoDia += diffHorasMinutos(new Date(entradas[i].data_hora), new Date(saidas[i].data_hora));
+    const saidasPareadas = [];
+    for (const ent of entradas) {
+      const saida = todosOrdenadosMei.find(r =>
+        (r.tipo === "SAIDA_LIVRE" || r.tipo === "SAIDA") &&
+        new Date(r.data_hora) > new Date(ent.data_hora) &&
+        !saidasPareadas.includes(r.id)
+      );
+      if (saida) {
+        horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(saida.data_hora));
+        saidasPareadas.push(saida.id);
+      }
     }
     totalHoras += horasNoDia;
 
-    if (registrosDoDia.length === 0) {
+    if (entradas.length === 0) {
       linhas.push([formatarDataBR(dia), "-", "-", "-", "—"]);
     } else {
-      const horaEntrada = entradas[0] ? new Date(entradas[0].data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-";
-      const horaSaida = saidas[saidas.length-1] ? new Date(saidas[saidas.length-1].data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-";
+      const primeiraEntrada = entradas[0];
+      const ultimaSaida = saidasPareadas.length > 0
+        ? todosOrdenadosMei.find(r => r.id === saidasPareadas[saidasPareadas.length - 1])
+        : null;
+      const horaEntrada = new Date(primeiraEntrada.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+      const horaSaida = ultimaSaida ? new Date(ultimaSaida.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-";
       linhas.push([
         formatarDataBR(dia),
         horaEntrada,
         horaSaida,
-        formatarHoras(horasNoDia),
+        horasNoDia > 0 ? formatarHoras(horasNoDia) : "-",
         entradas.length > 1 ? `${entradas.length} turnos` : "-"
       ]);
     }
@@ -342,7 +388,16 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
   doc.setFont("helvetica", "bold");
   doc.text("Total do período", 14, yFinal); yFinal += 6;
   doc.setFont("helvetica", "normal");
-  doc.text(`Total de horas: ${formatarHoras(totalHoras)}`, 14, yFinal);
+  doc.text(`Total de horas: ${formatarHoras(totalHoras)}`, 14, yFinal); yFinal += 5;
+
+  if (valorHora != null) {
+    const totalMinutos = Math.round(totalHoras * 60);
+    const valorTotal = (totalMinutos / 60) * valorHora;
+    doc.text(`Valor/hora: R$ ${valorHora.toFixed(2).replace(".", ",")}`, 14, yFinal); yFinal += 5;
+    doc.setFont("helvetica", "bold");
+    doc.text(`Valor total: R$ ${valorTotal.toFixed(2).replace(".", ",")}`, 14, yFinal);
+    doc.setFont("helvetica", "normal");
+  }
 
   desenharRodapeAssinatura(doc, yFinal);
 

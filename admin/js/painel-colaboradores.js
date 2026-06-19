@@ -146,7 +146,9 @@ function abrirModalColaborador(colaborador) {
               <option value="SEMANAL">Semanal (segunda a domingo)</option>
               <option value="QUINZENAL" selected>Quinzenal</option>
             </select>
-            <p class="texto-suave texto-pequeno mt-8">Define o período sugerido ao gerar o relatório deste colaborador.</p>
+            <label class="bsk-label mt-16">Valor por hora (R$)</label>
+            <input type="number" id="f-valor-hora" class="input" min="0" step="0.01" placeholder="Ex: 25.00">
+            <p class="texto-suave texto-pequeno mt-8">Usado para calcular o valor total no relatório PDF.</p>
           </div>
 
           <div id="msg-erro-colab" class="texto-pequeno" style="color: var(--bsk-vermelho); min-height: 18px;"></div>
@@ -172,12 +174,14 @@ function abrirModalColaborador(colaborador) {
   if (ehEdicao && c.vinculo === "MEI") {
     supabaseClient
       .from("config_relatorio_mei")
-      .select("periodo")
+      .select("periodo, valor_hora")
       .eq("colaborador_id", c.id)
       .maybeSingle()
       .then(({ data }) => {
         const selPeriodo = document.getElementById("f-periodo-mei");
         if (data?.periodo && selPeriodo) selPeriodo.value = data.periodo;
+        const inputValor = document.getElementById("f-valor-hora");
+        if (data?.valor_hora != null && inputValor) inputValor.value = data.valor_hora;
       });
   }
 
@@ -243,11 +247,13 @@ async function salvarColaborador(idExistente) {
   // Período do relatório (semanal/quinzenal) só existe para MEI
   if (vinculo === "MEI" && colaboradorId) {
     const periodo = document.getElementById("f-periodo-mei").value;
+    const valorHoraRaw = document.getElementById("f-valor-hora").value;
+    const valorHora = valorHoraRaw !== "" ? parseFloat(valorHoraRaw) : null;
     const { error: erroPeriodo } = await supabaseClient
       .from("config_relatorio_mei")
-      .upsert({ colaborador_id: colaboradorId, periodo });
+      .upsert({ colaborador_id: colaboradorId, periodo, valor_hora: valorHora });
     if (erroPeriodo) {
-      erroEl.textContent = "Colaborador salvo, mas houve erro ao salvar o período: " + erroPeriodo.message;
+      erroEl.textContent = "Colaborador salvo, mas houve erro ao salvar configuração MEI: " + erroPeriodo.message;
       return;
     }
   }
