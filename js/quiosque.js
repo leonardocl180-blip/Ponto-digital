@@ -46,21 +46,10 @@ async function carregarColaboradores() {
 
   colaboradores = data || [];
 
-  // Busca todas as batidas de hoje em BRT (UTC-3) em uma única query
-  const agora = new Date();
-  const offsetBRT = 3 * 60 * 60 * 1000; // BRT = UTC-3
-  const agora_brt = new Date(agora.getTime() - offsetBRT);
-  const hoje_brt = agora_brt.toISOString().slice(0, 10); // YYYY-MM-DD em BRT
-  const inicioDia = new Date(`${hoje_brt}T03:00:00.000Z`); // 00:00 BRT = 03:00 UTC
-  const fimDia    = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
+  // Busca o status de hoje via função RPC segura (a tabela
+  // registros_ponto não é legível por usuários anônimos).
+  const { data: batidasHoje } = await supabaseClient.rpc("status_hoje_todos_colaboradores");
 
-  const { data: batidasHoje } = await supabaseClient
-    .from("registros_ponto")
-    .select("colaborador_id, tipo")
-    .gte("data_hora", inicioDia.toISOString())
-    .lt("data_hora", fimDia.toISOString());
-
-  // Monta um mapa colaborador_id -> [tipos batidos hoje]
   statusHoje = {};
   (batidasHoje || []).forEach(b => {
     if (!statusHoje[b.colaborador_id]) statusHoje[b.colaborador_id] = [];
@@ -108,18 +97,7 @@ function renderizarGrade(lista) {
 // sem recriar a grade inteira. Chamado a cada 30 segundos.
 // ------------------------------------------------------------
 async function atualizarStatus() {
-  const agora = new Date();
-  const offsetBRT = 3 * 60 * 60 * 1000;
-  const agora_brt = new Date(agora.getTime() - offsetBRT);
-  const hoje_brt = agora_brt.toISOString().slice(0, 10);
-  const inicioDia = new Date(`${hoje_brt}T03:00:00.000Z`);
-  const fimDia    = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000);
-
-  const { data: batidasHoje } = await supabaseClient
-    .from("registros_ponto")
-    .select("colaborador_id, tipo")
-    .gte("data_hora", inicioDia.toISOString())
-    .lt("data_hora", fimDia.toISOString());
+  const { data: batidasHoje } = await supabaseClient.rpc("status_hoje_todos_colaboradores");
 
   statusHoje = {};
   (batidasHoje || []).forEach(b => {
