@@ -68,7 +68,11 @@ async function carregarRegistros() {
         <td>${dt.toLocaleDateString("pt-BR")}</td>
         <td>${dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
         <td>${NOMES_BATIDA[r.tipo] || r.tipo}</td>
-        <td class="texto-pequeno texto-suave">${r.origem === "OFFLINE_SYNC" ? "Sincronizado (offline)" : "Online"}</td>
+        <td class="texto-pequeno texto-suave">${
+          r.origem === "OFFLINE_SYNC" ? "Sincronizado (offline)" :
+          r.origem === "MANUAL_ADMIN" ? "Adicionado manualmente" :
+          "Online"
+        }</td>
         <td>
           <div class="acoes-linha">
             ${r.foto_url ? `<button data-acao="ver-foto" data-url="${r.foto_url}">Foto</button>` : ""}
@@ -106,6 +110,90 @@ function abrirFotoRegistro(url) {
   document.getElementById("modal-foto-fundo").addEventListener("click", (e) => {
     if (e.target.id === "modal-foto-fundo") modais.innerHTML = "";
   });
+}
+
+document.getElementById("btn-novo-registro").addEventListener("click", abrirNovoRegistro);
+
+function abrirNovoRegistro() {
+  const modais = document.getElementById("camada-modais");
+  const agora = new Date();
+  const dataHoraLocal = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 16);
+
+  modais.innerHTML = `
+    <div class="modal-fundo" id="modal-novo-registro-fundo">
+      <div class="card modal-form">
+        <h3>Adicionar registro manual</h3>
+        <p class="texto-suave texto-pequeno mt-8">
+          Use isto quando o colaborador esquecer de bater o ponto, ou para corrigir uma falta de registro.
+        </p>
+        <div class="stack mt-16">
+          <div>
+            <label class="bsk-label">Colaborador</label>
+            <select id="f-novo-reg-colaborador" class="input">
+              <option value="">Selecione...</option>
+              ${colaboradoresCache.map(c => `<option value="${c.id}">${c.nome} (${c.vinculo})</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="bsk-label">Tipo de registro</label>
+            <select id="f-novo-reg-tipo" class="input">
+              <option value="ENTRADA">Entrada</option>
+              <option value="SAIDA_ALMOCO">Início do intervalo</option>
+              <option value="VOLTA_ALMOCO">Fim do intervalo</option>
+              <option value="SAIDA">Saída</option>
+              <option value="ENTRADA_LIVRE">Entrada (MEI)</option>
+              <option value="SAIDA_LIVRE">Saída (MEI)</option>
+            </select>
+          </div>
+          <div>
+            <label class="bsk-label">Data e hora</label>
+            <input type="datetime-local" id="f-novo-reg-datahora" class="input" value="${dataHoraLocal}">
+          </div>
+        </div>
+        <p class="texto-pequeno mt-8" id="erro-novo-registro" style="color:#e57373;"></p>
+        <div class="row mt-16">
+          <button type="button" class="btn btn--secundario" id="btn-cancelar-novo-registro">Cancelar</button>
+          <button type="button" class="btn btn--primario" id="btn-salvar-novo-registro">Adicionar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("btn-cancelar-novo-registro").addEventListener("click", () => modais.innerHTML = "");
+  document.getElementById("modal-novo-registro-fundo").addEventListener("click", (e) => {
+    if (e.target.id === "modal-novo-registro-fundo") modais.innerHTML = "";
+  });
+  document.getElementById("btn-salvar-novo-registro").addEventListener("click", salvarNovoRegistro);
+
+  // Se já houver um colaborador selecionado no filtro, pré-seleciona
+  const colaboradorFiltro = document.getElementById("select-colaborador-registros").value;
+  if (colaboradorFiltro) document.getElementById("f-novo-reg-colaborador").value = colaboradorFiltro;
+}
+
+async function salvarNovoRegistro() {
+  const colaboradorId = document.getElementById("f-novo-reg-colaborador").value;
+  const tipo = document.getElementById("f-novo-reg-tipo").value;
+  const dataHora = document.getElementById("f-novo-reg-datahora").value;
+  const erroEl = document.getElementById("erro-novo-registro");
+
+  if (!colaboradorId) { erroEl.textContent = "Selecione um colaborador."; return; }
+  if (!dataHora) { erroEl.textContent = "Informe a data e hora."; return; }
+
+  const { error } = await supabaseClient.from("registros_ponto").insert({
+    colaborador_id: colaboradorId,
+    tipo,
+    data_hora: new Date(dataHora).toISOString(),
+    origem: "MANUAL_ADMIN",
+    editado_por: perfilLogado.id
+  });
+
+  if (error) { erroEl.textContent = "Erro ao adicionar: " + error.message; return; }
+
+  document.getElementById("camada-modais").innerHTML = "";
+  if (document.getElementById("select-colaborador-registros").value === colaboradorId) {
+    carregarRegistros();
+  }
 }
 
 async function editarRegistro(id, dataHoraAtual) {
