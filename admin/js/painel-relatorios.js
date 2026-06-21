@@ -321,6 +321,7 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
   const dias = gerarListaDias(inicio, fim);
   const linhas = [];
   let totalHoras = 0;
+  let totalIntervaloMinutos = 0;
 
   const todosOrdenadosMei = [...(registros || [])].sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
 
@@ -332,38 +333,55 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
       (r.tipo === "ENTRADA_LIVRE" || r.tipo === "ENTRADA") && dataBRT(r.data_hora) === diaStr
     );
 
-    // Para cada entrada, busca a primeira saída que vem depois dela
-    // (pode cruzar meia-noite BRT)
+    // Pareia cada entrada com a primeira saída seguinte (pode cruzar
+    // meia-noite BRT). Monta a lista de turnos do dia — o colaborador
+    // MEI pode ter nenhum, um ou vários turnos/intervalos no mesmo dia.
     let horasNoDia = 0;
-    const saidasPareadas = [];
+    const turnos = [];
+    const saidasUsadas = [];
     for (const ent of entradas) {
       const saida = todosOrdenadosMei.find(r =>
         (r.tipo === "SAIDA_LIVRE" || r.tipo === "SAIDA") &&
         new Date(r.data_hora) > new Date(ent.data_hora) &&
-        !saidasPareadas.includes(r.id)
+        !saidasUsadas.includes(r.id)
       );
       if (saida) {
         horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(saida.data_hora));
-        saidasPareadas.push(saida.id);
+        saidasUsadas.push(saida.id);
+        turnos.push({ entrada: ent, saida });
+      } else {
+        turnos.push({ entrada: ent, saida: null }); // bateu entrada mas ainda não saiu
       }
     }
     totalHoras += horasNoDia;
 
-    if (entradas.length === 0) {
-      linhas.push([formatarDataBR(dia), "-", "-", "-", "—"]);
+    // Intervalos = gaps entre o fim de um turno e o início do próximo.
+    // Se houver só 1 turno (ou 0), não existe intervalo nesse dia.
+    const intervalosTexto = [];
+    for (let i = 0; i < turnos.length - 1; i++) {
+      if (turnos[i].saida) {
+        const gapMin = (new Date(turnos[i+1].entrada.data_hora) - new Date(turnos[i].saida.data_hora)) / 60000;
+        if (gapMin > 0) {
+          totalIntervaloMinutos += gapMin;
+          intervalosTexto.push(formatarHoras(gapMin / 60));
+        }
+      }
+    }
+
+    if (turnos.length === 0) {
+      linhas.push([formatarDataBR(dia), "-", "—", "-"]);
     } else {
-      const primeiraEntrada = entradas[0];
-      const ultimaSaida = saidasPareadas.length > 0
-        ? todosOrdenadosMei.find(r => r.id === saidasPareadas[saidasPareadas.length - 1])
-        : null;
-      const horaEntrada = new Date(primeiraEntrada.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-      const horaSaida = ultimaSaida ? new Date(ultimaSaida.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-";
+      const turnosTexto = turnos.map(t => {
+        const he = new Date(t.entrada.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+        const hs = t.saida ? new Date(t.saida.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "(em aberto)";
+        return `${he} – ${hs}`;
+      }).join("\n");
+
       linhas.push([
         formatarDataBR(dia),
-        horaEntrada,
-        horaSaida,
-        horasNoDia > 0 ? formatarHoras(horasNoDia) : "-",
-        entradas.length > 1 ? `${entradas.length} turnos` : "-"
+        turnosTexto,
+        intervalosTexto.length > 0 ? intervalosTexto.join("\n") : "—",
+        horasNoDia > 0 ? formatarHoras(horasNoDia) : "-"
       ]);
     }
   }
@@ -374,11 +392,17 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
 
   doc.autoTable({
     startY: y,
-    head: [["Data","Entrada","Saída","Total horas","Obs."]],
+    head: [["Data","Turnos (entrada – saída)","Intervalos","Total horas"]],
     body: linhas,
     theme: "plain",
-    styles: { fontSize: 8, textColor: 0, lineColor: 0, lineWidth: 0.1 },
+    styles: { fontSize: 8, textColor: 0, lineColor: 0, lineWidth: 0.1, valign: "top" },
     headStyles: { fontStyle: "bold", lineWidth: 0.2 },
+    columnStyles: {
+      0: { cellWidth: 24 },
+      1: { cellWidth: 60 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 26 }
+    },
     tableLineColor: 0,
     tableLineWidth: 0.1,
   });
@@ -388,7 +412,8 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
   doc.setFont("helvetica", "bold");
   doc.text("Total do período", 14, yFinal); yFinal += 6;
   doc.setFont("helvetica", "normal");
-  doc.text(`Total de horas: ${formatarHoras(totalHoras)}`, 14, yFinal); yFinal += 5;
+  doc.text(`Total de horas trabalhadas: ${formatarHoras(totalHoras)}`, 14, yFinal); yFinal += 5;
+  doc.text(`Total em intervalos: ${totalIntervaloMinutos > 0 ? formatarHoras(totalIntervaloMinutos / 60) : "nenhum intervalo no período"}`, 14, yFinal); yFinal += 5;
 
   if (valorHora != null) {
     const totalMinutos = Math.round(totalHoras * 60);
