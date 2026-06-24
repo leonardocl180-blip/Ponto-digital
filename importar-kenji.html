@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Importar ponto — Kenji</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #fff; font-family: system-ui, sans-serif; padding: 24px 18px; }
+  h1 { color: #f5c518; font-size: 20px; margin-bottom: 6px; }
+  p  { color: #aaa; font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+  .aviso { background: #2a2200; border: 1px solid #f5c518; border-radius: 10px; padding: 14px; margin-bottom: 20px; font-size: 13px; color: #f5c518; }
+  .aviso strong { display: block; margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
+  th { background: #222; color: #aaa; padding: 8px 6px; text-align: left; font-size: 11px; text-transform: uppercase; }
+  td { padding: 8px 6px; border-bottom: 1px solid #222; }
+  .tag-assumido { color: #f5c518; font-weight: bold; }
+  .btn { display: block; width: 100%; padding: 16px; border-radius: 10px; border: none; font-size: 16px; font-weight: 700; cursor: pointer; margin-bottom: 12px; }
+  .btn-importar { background: #f5c518; color: #111; }
+  .btn-importar:disabled { background: #444; color: #777; cursor: not-allowed; }
+  .btn-cancelar { background: #222; color: #aaa; border: 1px solid #333; }
+  #log { background: #1a1a1a; border-radius: 10px; padding: 14px; font-size: 13px; font-family: monospace; min-height: 80px; white-space: pre-wrap; line-height: 1.7; display: none; }
+  .ok { color: #4caf50; }
+  .erro { color: #e57373; }
+  .info { color: #aaa; }
+</style>
+</head>
+<body>
+
+<h1>📋 Importar folha de ponto</h1>
+<p>Kenji Kuabara — Junho 2026 — Dias 3 a 17</p>
+
+<div class="aviso">
+  <strong>⚠️ Verifique antes de importar:</strong>
+  Os horários marcados em <span style="color:#f5c518">amarelo</span> abaixo foram assumidos por letra ilegível. Corrija no código se necessário.
+</div>
+
+<table>
+  <thead><tr><th>Dia</th><th>Entrada</th><th>Sai int.</th><th>Vol. int.</th><th>Saída</th></tr></thead>
+  <tbody>
+    <tr><td>3</td><td>11:00</td><td>14:13</td><td>15:13</td><td>19:40</td></tr>
+    <tr><td>4</td><td>09:00</td><td>14:00</td><td>15:00</td><td>18:00</td></tr>
+    <tr><td>5</td><td>11:02</td><td>14:10</td><td class="tag-assumido">15:10⚠</td><td>19:30</td></tr>
+    <tr><td>6</td><td>08:50</td><td>13:30</td><td>15:00</td><td class="tag-assumido">17:10⚠</td></tr>
+    <tr><td>7</td><td colspan="4" style="color:#555;font-style:italic">FOLGA</td></tr>
+    <tr><td>8</td><td>11:00</td><td>14:00</td><td>15:00</td><td>19:20</td></tr>
+    <tr><td>9</td><td>11:15</td><td>14:00</td><td>15:00</td><td>19:35</td></tr>
+    <tr><td>10</td><td colspan="4" style="color:#555;font-style:italic">FOLGA</td></tr>
+    <tr><td>11</td><td>11:00</td><td>14:00</td><td>15:00</td><td>19:30</td></tr>
+    <tr><td>12</td><td>11:00</td><td>14:00</td><td>15:00</td><td>19:20</td></tr>
+    <tr><td>13</td><td>10:00</td><td>13:30</td><td>14:25</td><td>18:20</td></tr>
+    <tr><td>14</td><td colspan="4" style="color:#555;font-style:italic">FOLGA</td></tr>
+    <tr><td>15</td><td>11:00</td><td>14:00</td><td>15:00</td><td>19:30</td></tr>
+    <tr><td>16</td><td>11:20</td><td>14:10</td><td>15:20</td><td>19:52</td></tr>
+    <tr><td>17</td><td>10:57</td><td>14:35</td><td class="tag-assumido">15:35⚠</td><td>19:26</td></tr>
+  </tbody>
+</table>
+
+<button class="btn btn-importar" id="btn-importar" onclick="iniciarImportacao()">Importar agora</button>
+<button class="btn btn-cancelar" onclick="history.back()">Voltar</button>
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL     = "https://vzvsycsvdqahmojvxdqu.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6dnN5Y3N2ZHFhaG1vanZ4ZHF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3MDgxMjMsImV4cCI6MjA5NzI4NDEyM30.V5RJORwSNlwj6sQFOjVEPNV8g2YT_q52wqI0rsuban8";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// BRT → UTC (BRT = UTC-3, logo UTC = BRT + 3h)
+function brtUtc(dia, hm) {
+  const [h, m] = hm.split(":").map(Number);
+  return new Date(Date.UTC(2026, 5, dia, h + 3, m)).toISOString();
+}
+
+const DIAS = [
+  { dia: 3,  e:"11:00", si:"14:13", vi:"15:13", s:"19:40" },
+  { dia: 4,  e:"09:00", si:"14:00", vi:"15:00", s:"18:00" },
+  { dia: 5,  e:"11:02", si:"14:10", vi:"15:10", s:"19:30" },
+  { dia: 6,  e:"08:50", si:"13:30", vi:"15:00", s:"17:10" },
+  { dia: 8,  e:"11:00", si:"14:00", vi:"15:00", s:"19:20" },
+  { dia: 9,  e:"11:15", si:"14:00", vi:"15:00", s:"19:35" },
+  { dia: 11, e:"11:00", si:"14:00", vi:"15:00", s:"19:30" },
+  { dia: 12, e:"11:00", si:"14:00", vi:"15:00", s:"19:20" },
+  { dia: 13, e:"10:00", si:"13:30", vi:"14:25", s:"18:20" },
+  { dia: 15, e:"11:00", si:"14:00", vi:"15:00", s:"19:30" },
+  { dia: 16, e:"11:20", si:"14:10", vi:"15:20", s:"19:52" },
+  { dia: 17, e:"10:57", si:"14:35", vi:"15:35", s:"19:26" },
+];
+
+function log(msg, tipo = "info") {
+  const el = document.getElementById("log");
+  el.style.display = "block";
+  el.innerHTML += `<span class="${tipo}">${msg}</span>\n`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function iniciarImportacao() {
+  const btn = document.getElementById("btn-importar");
+  btn.disabled = true;
+  btn.textContent = "Importando...";
+  document.getElementById("log").innerHTML = "";
+
+  // 1. Verifica sessão
+  log("🔐 Verificando sessão...");
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) {
+    log("❌ Você precisa estar logado no painel administrativo para importar.", "erro");
+    log("Faça login em /admin/login.html e tente novamente.", "erro");
+    btn.disabled = false; btn.textContent = "Importar agora";
+    return;
+  }
+  log(`✓ Logado como ${session.user.email}`, "ok");
+
+  // 2. Busca colaborador
+  log("🔍 Buscando Kenji Kuabara...");
+  const { data: colabs, error: erroBusca } = await db
+    .from("colaboradores")
+    .select("id, nome, tipo_registro")
+    .ilike("nome", "%kenji%");
+
+  if (erroBusca || !colabs?.length) {
+    log("❌ Colaborador não encontrado: " + (erroBusca?.message || "nenhum resultado"), "erro");
+    btn.disabled = false; btn.textContent = "Importar agora";
+    return;
+  }
+
+  const colab = colabs.find(c => c.nome.toLowerCase().includes("clt")) || colabs[0];
+  log(`✓ ${colab.nome} | ID: ${colab.id} | Modo: ${colab.tipo_registro}`, "ok");
+
+  // 3. Monta registros
+  const modoLivre = colab.tipo_registro === "LIVRE";
+  const registros = [];
+  for (const r of DIAS) {
+    if (modoLivre) {
+      registros.push(
+        { colaborador_id: colab.id, tipo: "ENTRADA_LIVRE", data_hora: brtUtc(r.dia, r.e),  origem: "MANUAL_ADMIN" },
+        { colaborador_id: colab.id, tipo: "SAIDA_LIVRE",   data_hora: brtUtc(r.dia, r.si), origem: "MANUAL_ADMIN" },
+        { colaborador_id: colab.id, tipo: "ENTRADA_LIVRE", data_hora: brtUtc(r.dia, r.vi), origem: "MANUAL_ADMIN" },
+        { colaborador_id: colab.id, tipo: "SAIDA_LIVRE",   data_hora: brtUtc(r.dia, r.s),  origem: "MANUAL_ADMIN" }
+      );
+    } else {
+      registros.push(
+        { colaborador_id: colab.id, tipo: "ENTRADA",      data_hora: brtUtc(r.dia, r.e),  origem: "MANUAL_ADMIN" },
+        { colaborador_id: colab.id, tipo: "SAIDA_ALMOCO", data_hora: brtUtc(r.dia, r.si), origem: "MANUAL_ADMIN" },
+        { colaborador_id: colab.id, tipo: "VOLTA_ALMOCO", data_hora: brtUtc(r.dia, r.vi), origem: "MANUAL_ADMIN" },
+        { colaborador_id: colab.id, tipo: "SAIDA",        data_hora: brtUtc(r.dia, r.s),  origem: "MANUAL_ADMIN" }
+      );
+    }
+  }
+  log(`📋 ${registros.length} batidas para inserir (${DIAS.length} dias × 4)`);
+
+  // 4. Insere
+  const { error: erroInsert } = await db.from("registros_ponto").insert(registros);
+
+  if (erroInsert) {
+    log("❌ Erro ao inserir: " + erroInsert.message, "erro");
+    log("Dica: verifique se há registros duplicados para este período.", "info");
+    btn.disabled = false; btn.textContent = "Tentar novamente";
+    return;
+  }
+
+  log(`\n✅ Sucesso! ${registros.length} batidas importadas.`, "ok");
+  log("Acesse o painel → Registros de ponto → selecione Kenji para conferir.", "ok");
+  btn.textContent = "✓ Importado";
+}
+</script>
+</body>
+</html>
