@@ -206,29 +206,47 @@ async function gerarPdfClt(colaborador, anoMes) {
   // Ordena todos os registros cronologicamente para encontrar pares entrada→saída
   const todosOrdenados = [...(registros || [])].sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
 
+  // CLT pode estar configurado como "Múltiplas batidas" (LIVRE), então
+  // os tipos salvos são ENTRADA_LIVRE/SAIDA_LIVRE em vez de ENTRADA/SAIDA.
+  // A função aceita os dois formatos.
+  const ehEntrada = (r) => r.tipo === "ENTRADA" || r.tipo === "ENTRADA_LIVRE";
+  const ehSaida   = (r) => r.tipo === "SAIDA"   || r.tipo === "SAIDA_LIVRE";
+  const ehSaidaIntervalo = (r) => r.tipo === "SAIDA_ALMOCO";
+  const ehVoltaIntervalo = (r) => r.tipo === "VOLTA_ALMOCO";
+
   for (const dia of dias) {
-    // Usa data em BRT (não UTC) para comparação correta
     const diaStr = `${dia.getFullYear()}-${String(dia.getMonth()+1).padStart(2,"0")}-${String(dia.getDate()).padStart(2,"0")}`;
     const diaSemana = dia.getDay();
     const trabalhaEsteDia = (colaborador.dias_trabalho || [1,2,3,4,5]).includes(diaSemana);
-
     const ausenciaDoDia = ausencias?.find(a => a.data === diaStr);
 
-    // Encontra ENTRADA cujo dia BRT coincide com o dia atual
-    const entrada = todosOrdenados.find(r => r.tipo === "ENTRADA" && dataBRT(r.data_hora) === diaStr);
+    // Encontra a primeira entrada do dia em BRT
+    const entrada = todosOrdenados.find(r => ehEntrada(r) && dataBRT(r.data_hora) === diaStr);
 
-    // SAIDA, SAIDA_ALMOCO, VOLTA_ALMOCO: busca o primeiro de cada tipo
-    // que venha DEPOIS da entrada (cobrindo virada de meia-noite)
+    // Restante dos registros após a entrada (cobre virada de meia-noite)
     const aposEntrada = entrada
       ? todosOrdenados.filter(r => new Date(r.data_hora) > new Date(entrada.data_hora))
       : [];
 
-    const saida       = aposEntrada.find(r => r.tipo === "SAIDA");
-    const saidaAlmoco = aposEntrada.find(r => r.tipo === "SAIDA_ALMOCO");
-    const voltaAlmoco = aposEntrada.find(r => r.tipo === "VOLTA_ALMOCO");
+    const saida       = aposEntrada.find(r => ehSaida(r));
+    const saidaAlmoco = aposEntrada.find(r => ehSaidaIntervalo(r));
+    const voltaAlmoco = aposEntrada.find(r => ehVoltaIntervalo(r));
 
+    // Se for modo LIVRE e tiver múltiplos pares no dia,
+    // calcula somando todos os turnos (como no MEI)
     let horasNoDia = 0;
-    if (entrada && saida) {
+    if (colaborador.tipo_registro === "LIVRE" && entrada) {
+      const saidasUsadas = [];
+      const entradasDia = todosOrdenados.filter(r => ehEntrada(r) && dataBRT(r.data_hora) === diaStr);
+      for (const ent of entradasDia) {
+        const s = todosOrdenados.find(r =>
+          ehSaida(r) &&
+          new Date(r.data_hora) > new Date(ent.data_hora) &&
+          !saidasUsadas.includes(r.id)
+        );
+        if (s) { horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(s.data_hora)); saidasUsadas.push(s.id); }
+      }
+    } else if (entrada && saida) {
       horasNoDia = diffHorasMinutos(new Date(entrada.data_hora), new Date(saida.data_hora));
       if (saidaAlmoco && voltaAlmoco) {
         horasNoDia -= diffHorasMinutos(new Date(saidaAlmoco.data_hora), new Date(voltaAlmoco.data_hora));
