@@ -220,38 +220,47 @@ async function gerarPdfClt(colaborador, anoMes) {
     const trabalhaEsteDia = (colaborador.dias_trabalho || [1,2,3,4,5]).includes(diaSemana);
     const ausenciaDoDia = ausencias?.find(a => a.data === diaStr);
 
-    // Encontra a primeira entrada do dia em BRT
-    const entrada = todosOrdenados.find(r => ehEntrada(r) && dataBRT(r.data_hora) === diaStr);
+    // Detecta tipo de batida pelo que está gravado naquele dia (não pelo
+    // config atual). Isso garante compatibilidade com dias gravados em modo
+    // LIVRE quando o colaborador era "múltiplas batidas", mesmo depois de
+    // ser reconfigurado para SIMPLES (e vice-versa).
+    const entradasSimples = todosOrdenados.filter(r => r.tipo === "ENTRADA"       && dataBRT(r.data_hora) === diaStr);
+    const entradasLivre   = todosOrdenados.filter(r => r.tipo === "ENTRADA_LIVRE" && dataBRT(r.data_hora) === diaStr);
 
-    // Restante dos registros após a entrada (cobre virada de meia-noite)
-    const aposEntrada = entrada
-      ? todosOrdenados.filter(r => new Date(r.data_hora) > new Date(entrada.data_hora))
-      : [];
-
-    const saida       = aposEntrada.find(r => ehSaida(r));
-    const saidaAlmoco = aposEntrada.find(r => ehSaidaIntervalo(r));
-    const voltaAlmoco = aposEntrada.find(r => ehVoltaIntervalo(r));
-
-    // Se for modo LIVRE e tiver múltiplos pares no dia,
-    // calcula somando todos os turnos (como no MEI)
     let horasNoDia = 0;
-    if (colaborador.tipo_registro === "LIVRE" && entrada) {
+    let entradaRef = null, saidaRef = null, saidaAlmocoRef = null, voltaAlmocoRef = null;
+
+    if (entradasSimples.length > 0) {
+      // Formato CLT clássico: ENTRADA → SAIDA_ALMOCO → VOLTA_ALMOCO → SAIDA
+      entradaRef = entradasSimples[0];
+      const apos = todosOrdenados.filter(r => new Date(r.data_hora) > new Date(entradaRef.data_hora));
+      saidaRef       = apos.find(r => r.tipo === "SAIDA");
+      saidaAlmocoRef = apos.find(r => r.tipo === "SAIDA_ALMOCO");
+      voltaAlmocoRef = apos.find(r => r.tipo === "VOLTA_ALMOCO");
+      if (entradaRef && saidaRef) {
+        horasNoDia = diffHorasMinutos(new Date(entradaRef.data_hora), new Date(saidaRef.data_hora));
+        if (saidaAlmocoRef && voltaAlmocoRef)
+          horasNoDia -= diffHorasMinutos(new Date(saidaAlmocoRef.data_hora), new Date(voltaAlmocoRef.data_hora));
+      }
+    } else if (entradasLivre.length > 0) {
+      // Formato LIVRE: pares ENTRADA_LIVRE → SAIDA_LIVRE (pode ter múltiplos)
+      entradaRef = entradasLivre[0];
       const saidasUsadas = [];
-      const entradasDia = todosOrdenados.filter(r => ehEntrada(r) && dataBRT(r.data_hora) === diaStr);
-      for (const ent of entradasDia) {
+      for (const ent of entradasLivre) {
         const s = todosOrdenados.find(r =>
-          ehSaida(r) &&
+          r.tipo === "SAIDA_LIVRE" &&
           new Date(r.data_hora) > new Date(ent.data_hora) &&
           !saidasUsadas.includes(r.id)
         );
         if (s) { horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(s.data_hora)); saidasUsadas.push(s.id); }
       }
-    } else if (entrada && saida) {
-      horasNoDia = diffHorasMinutos(new Date(entrada.data_hora), new Date(saida.data_hora));
-      if (saidaAlmoco && voltaAlmoco) {
-        horasNoDia -= diffHorasMinutos(new Date(saidaAlmoco.data_hora), new Date(voltaAlmoco.data_hora));
-      }
+      // Saída de referência = última saída do dia (para exibir na coluna)
+      saidaRef = [...saidasUsadas].length > 0
+        ? todosOrdenados.find(r => r.id === saidasUsadas[saidasUsadas.length - 1])
+        : null;
     }
+
+    const temRegistro = entradaRef !== null;
 
     let extraOuAtraso = 0;
     let observacao = "";
@@ -263,7 +272,7 @@ async function gerarPdfClt(colaborador, anoMes) {
       if (ausenciaDoDia.tipo === "FALTA") totalFaltas++;
     } else if (!trabalhaEsteDia) {
       observacao = "—";
-    } else if (entrada || saida) {
+    } else if (temRegistro) {
       extraOuAtraso = horasNoDia - jornadaEsperada;
       totalHoras += horasNoDia;
       totalExtra += extraOuAtraso;
@@ -273,12 +282,12 @@ async function gerarPdfClt(colaborador, anoMes) {
 
     linhas.push([
       formatarDataBR(dia),
-      entrada ? new Date(entrada.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
-      saidaAlmoco ? new Date(saidaAlmoco.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
-      voltaAlmoco ? new Date(voltaAlmoco.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
-      saida ? new Date(saida.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
-      (entrada && saida) ? formatarHoras(horasNoDia) : "-",
-      (entrada && saida) ? formatarHoras(extraOuAtraso) : "-",
+      entradaRef    ? new Date(entradaRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
+      saidaAlmocoRef? new Date(saidaAlmocoRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
+      voltaAlmocoRef? new Date(voltaAlmocoRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
+      saidaRef      ? new Date(saidaRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
+      (temRegistro && saidaRef) ? formatarHoras(horasNoDia) : "-",
+      (temRegistro && saidaRef) ? formatarHoras(extraOuAtraso) : "-",
       observacao
     ]);
   }
