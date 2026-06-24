@@ -120,6 +120,26 @@ async function atualizarStatus() {
   });
 }
 
+// ------------------------------------------------------------
+// Atualização em tempo real via Supabase Realtime
+// ------------------------------------------------------------
+function iniciarRealtimeStatus() {
+  supabaseClient
+    .channel("registros-ponto-hoje")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "registros_ponto" },
+      () => { atualizarStatus(); }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        console.log("Realtime: monitorando batidas de ponto.");
+      }
+    });
+}
+
+// Fallback: se o Realtime falhar por qualquer razão (rede, RLS, etc),
+// o setInterval garante que o status apareça no máximo em 30 segundos
 setInterval(atualizarStatus, 30 * 1000);
 
 elBuscaInput.addEventListener("input", () => {
@@ -349,6 +369,7 @@ async function abrirCamera() {
         <div class="camera-wrap mt-16">
           <video id="video-camera" autoplay playsinline></video>
         </div>
+        <div id="camera-status" class="texto-suave texto-pequeno mt-8" style="text-align:center;"></div>
         <div class="stack mt-16">
           <button class="btn btn--primario btn--bloco" id="btn-tirar-foto">Tirar foto e registrar</button>
           <button class="btn btn--ghost" id="btn-cancelar-camera">Cancelar</button>
@@ -357,7 +378,11 @@ async function abrirCamera() {
     </div>
   `;
 
-  document.getElementById("btn-cancelar-camera").addEventListener("click", fecharModais);
+  // Cancelar: para a câmera E volta sem registrar nada
+  document.getElementById("btn-cancelar-camera").addEventListener("click", () => {
+    pararCamera();
+    fecharModais();
+  });
   document.getElementById("btn-tirar-foto").addEventListener("click", tirarFotoERegistrar);
 
   try {
@@ -365,8 +390,15 @@ async function abrirCamera() {
     document.getElementById("video-camera").srcObject = streamCamera;
   } catch (e) {
     console.error("Erro ao acessar câmera:", e);
-    // Sem câmera disponível: segue sem foto
-    await registrarEFinalizar(null);
+    // Câmera indisponível: avisa e oferece registrar sem foto
+    // (não registra silenciosamente)
+    const statusEl = document.getElementById("camera-status");
+    const tirarBtn = document.getElementById("btn-tirar-foto");
+    if (statusEl) statusEl.textContent = "Câmera indisponível neste dispositivo.";
+    if (tirarBtn) {
+      tirarBtn.textContent = "Registrar sem foto";
+      tirarBtn.onclick = async () => { await registrarEFinalizar(null); };
+    }
   }
 }
 
@@ -479,3 +511,4 @@ document.addEventListener("bsk:sincronizado", (e) => {
 // Init
 // ------------------------------------------------------------
 carregarColaboradores();
+iniciarRealtimeStatus();
