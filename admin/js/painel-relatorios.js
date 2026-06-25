@@ -206,14 +206,6 @@ async function gerarPdfClt(colaborador, anoMes) {
   // Ordena todos os registros cronologicamente para encontrar pares entrada→saída
   const todosOrdenados = [...(registros || [])].sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
 
-  // CLT pode estar configurado como "Múltiplas batidas" (LIVRE), então
-  // os tipos salvos são ENTRADA_LIVRE/SAIDA_LIVRE em vez de ENTRADA/SAIDA.
-  // A função aceita os dois formatos.
-  const ehEntrada = (r) => r.tipo === "ENTRADA" || r.tipo === "ENTRADA_LIVRE";
-  const ehSaida   = (r) => r.tipo === "SAIDA"   || r.tipo === "SAIDA_LIVRE";
-  const ehSaidaIntervalo = (r) => r.tipo === "SAIDA_ALMOCO";
-  const ehVoltaIntervalo = (r) => r.tipo === "VOLTA_ALMOCO";
-
   for (const dia of dias) {
     const diaStr = `${dia.getFullYear()}-${String(dia.getMonth()+1).padStart(2,"0")}-${String(dia.getDate()).padStart(2,"0")}`;
     const diaSemana = dia.getDay();
@@ -221,43 +213,70 @@ async function gerarPdfClt(colaborador, anoMes) {
     const ausenciaDoDia = ausencias?.find(a => a.data === diaStr);
 
     // Detecta tipo de batida pelo que está gravado naquele dia (não pelo
-    // config atual). Isso garante compatibilidade com dias gravados em modo
-    // LIVRE quando o colaborador era "múltiplas batidas", mesmo depois de
-    // ser reconfigurado para SIMPLES (e vice-versa).
+    // config atual). Compatível com histórico gravado em modo diferente.
     const entradasSimples = todosOrdenados.filter(r => r.tipo === "ENTRADA"       && dataBRT(r.data_hora) === diaStr);
     const entradasLivre   = todosOrdenados.filter(r => r.tipo === "ENTRADA_LIVRE" && dataBRT(r.data_hora) === diaStr);
+    // Restringe SAIDA_ALMOCO/VOLTA_ALMOCO ao mesmo dia (evita vazar para dias seguintes)
+    const saidasAlmocoDia = todosOrdenados.filter(r => r.tipo === "SAIDA_ALMOCO"  && dataBRT(r.data_hora) === diaStr);
+    const voltasAlmocoDia = todosOrdenados.filter(r => r.tipo === "VOLTA_ALMOCO"  && dataBRT(r.data_hora) === diaStr);
 
     let horasNoDia = 0;
     let entradaRef = null, saidaRef = null, saidaAlmocoRef = null, voltaAlmocoRef = null;
 
     if (entradasSimples.length > 0) {
-      // Formato CLT clássico: ENTRADA → SAIDA_ALMOCO → VOLTA_ALMOCO → SAIDA
-      entradaRef = entradasSimples[0];
-      const apos = todosOrdenados.filter(r => new Date(r.data_hora) > new Date(entradaRef.data_hora));
-      saidaRef       = apos.find(r => r.tipo === "SAIDA");
-      saidaAlmocoRef = apos.find(r => r.tipo === "SAIDA_ALMOCO");
-      voltaAlmocoRef = apos.find(r => r.tipo === "VOLTA_ALMOCO");
+      // Formato CLT clássico: ENTRADA / SAIDA_ALMOCO / VOLTA_ALMOCO / SAIDA
+      entradaRef     = entradasSimples[0];
+      saidaAlmocoRef = saidasAlmocoDia[0] || null;
+      voltaAlmocoRef = voltasAlmocoDia[0] || null;
+      saidaRef       = todosOrdenados.find(r =>
+        r.tipo === "SAIDA" && dataBRT(r.data_hora) === diaStr &&
+        new Date(r.data_hora) > new Date(entradaRef.data_hora)
+      ) || null;
       if (entradaRef && saidaRef) {
         horasNoDia = diffHorasMinutos(new Date(entradaRef.data_hora), new Date(saidaRef.data_hora));
         if (saidaAlmocoRef && voltaAlmocoRef)
           horasNoDia -= diffHorasMinutos(new Date(saidaAlmocoRef.data_hora), new Date(voltaAlmocoRef.data_hora));
       }
+
     } else if (entradasLivre.length > 0) {
-      // Formato LIVRE: pares ENTRADA_LIVRE → SAIDA_LIVRE (pode ter múltiplos)
-      entradaRef = entradasLivre[0];
+      // Formato LIVRE: pares ENTRADA_LIVRE → SAIDA_LIVRE
+      // Para 2 pares (padrão CLT) preenche as colunas de intervalo.
       const saidasUsadas = [];
+      const turnos = [];
       for (const ent of entradasLivre) {
+        const entMs = new Date(ent.data_hora).getTime();
+        // Limite de 24h: uma saída não pode ser de um dia diferente do turno
         const s = todosOrdenados.find(r =>
           r.tipo === "SAIDA_LIVRE" &&
-          new Date(r.data_hora) > new Date(ent.data_hora) &&
+          new Date(r.data_hora).getTime() > entMs &&
+          new Date(r.data_hora).getTime() - entMs <= 24 * 3600000 &&
           !saidasUsadas.includes(r.id)
         );
-        if (s) { horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(s.data_hora)); saidasUsadas.push(s.id); }
+        if (s) { saidasUsadas.push(s.id); turnos.push({ entrada: ent, saida: s }); horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(s.data_hora)); }
+        else    { turnos.push({ entrada: ent, saida: null }); }
       }
-      // Saída de referência = última saída do dia (para exibir na coluna)
-      saidaRef = [...saidasUsadas].length > 0
-        ? todosOrdenados.find(r => r.id === saidasUsadas[saidasUsadas.length - 1])
-        : null;
+
+      entradaRef = entradasLivre[0];
+
+      // Última saída registrada (pode ser do intervalo se saída final estiver faltando)
+      const ultimaSaidaDisponivel = [...turnos].reverse().find(t => t.saida)?.saida || null;
+
+      if (turnos.length >= 2 && turnos[0].saida) {
+        // 2+ turnos: mapeia para colunas CLT (saída int / volta int / saída final)
+        saidaAlmocoRef = turnos[0].saida;
+        voltaAlmocoRef = turnos[1].entrada;
+        // Saída final = último turno completo; se incompleto, fica null (aparece "–")
+        saidaRef = turnos[turnos.length - 1].saida;
+      } else {
+        saidaRef = turnos[0]?.saida || null;
+      }
+
+      // Se saída final está faltando mas há pelo menos um par completo,
+      // guarda a última saída disponível para exibir na coluna e
+      // sinaliza com observação.
+      if (!saidaRef && ultimaSaidaDisponivel && horasNoDia > 0) {
+        saidaRef = ultimaSaidaDisponivel; // exibe última saída conhecida
+      }
     }
 
     const temRegistro = entradaRef !== null;
@@ -273,6 +292,17 @@ async function gerarPdfClt(colaborador, anoMes) {
     } else if (!trabalhaEsteDia) {
       observacao = "—";
     } else if (temRegistro) {
+      // Verifica se o último turno do dia ficou sem saída registrada
+      const entradasLivreRef = todosOrdenados.filter(r => r.tipo === "ENTRADA_LIVRE" && dataBRT(r.data_hora) === diaStr);
+      if (entradasLivreRef.length > 0) {
+        const ultimaEntradaMs = new Date(entradasLivreRef[entradasLivreRef.length - 1].data_hora).getTime();
+        const temSaidaFinal = todosOrdenados.some(r =>
+          r.tipo === "SAIDA_LIVRE" &&
+          new Date(r.data_hora).getTime() > ultimaEntradaMs &&
+          new Date(r.data_hora).getTime() - ultimaEntradaMs <= 24 * 3600000
+        );
+        if (!temSaidaFinal && horasNoDia > 0) observacao = "Saída incompleta";
+      }
       extraOuAtraso = horasNoDia - jornadaEsperada;
       totalHoras += horasNoDia;
       totalExtra += extraOuAtraso;
@@ -286,8 +316,8 @@ async function gerarPdfClt(colaborador, anoMes) {
       saidaAlmocoRef? new Date(saidaAlmocoRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
       voltaAlmocoRef? new Date(voltaAlmocoRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
       saidaRef      ? new Date(saidaRef.data_hora).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "-",
-      (temRegistro && saidaRef) ? formatarHoras(horasNoDia) : "-",
-      (temRegistro && saidaRef) ? formatarHoras(extraOuAtraso) : "-",
+      (temRegistro && horasNoDia > 0) ? formatarHoras(horasNoDia) : "-",
+      (temRegistro && horasNoDia > 0) ? formatarHoras(extraOuAtraso) : "-",
       observacao
     ]);
   }
