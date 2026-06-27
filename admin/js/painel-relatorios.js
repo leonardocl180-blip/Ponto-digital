@@ -222,6 +222,7 @@ async function gerarPdfClt(colaborador, anoMes) {
 
     let horasNoDia = 0;
     let entradaRef = null, saidaRef = null, saidaAlmocoRef = null, voltaAlmocoRef = null;
+    let turnos = [];
 
     if (entradasSimples.length > 0) {
       // Formato CLT clássico: ENTRADA / SAIDA_ALMOCO / VOLTA_ALMOCO / SAIDA
@@ -245,7 +246,6 @@ async function gerarPdfClt(colaborador, anoMes) {
       // deve estar entre as duas entradas — isso resolve naturalmente
       // virada de meia-noite E evita pegar saídas de dias seguintes.
       const saidasUsadas = [];
-      const turnos = [];
       for (const ent of entradasLivre) {
         const entMs = new Date(ent.data_hora).getTime();
         // Próxima entrada (em qualquer dia) após esta
