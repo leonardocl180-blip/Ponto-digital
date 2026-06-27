@@ -240,16 +240,30 @@ async function gerarPdfClt(colaborador, anoMes) {
 
     } else if (entradasLivre.length > 0) {
       // Formato LIVRE: pares ENTRADA_LIVRE → SAIDA_LIVRE
-      // Para 2 pares (padrão CLT) preenche as colunas de intervalo.
+      // Lógica de pareamento: antes de buscar a saída de uma entrada,
+      // verifica se existe OUTRA entrada depois. Se sim, a saída válida
+      // deve estar entre as duas entradas — isso resolve naturalmente
+      // virada de meia-noite E evita pegar saídas de dias seguintes.
       const saidasUsadas = [];
       const turnos = [];
       for (const ent of entradasLivre) {
         const entMs = new Date(ent.data_hora).getTime();
-        // Limite de 24h: uma saída não pode ser de um dia diferente do turno
+        // Próxima entrada (em qualquer dia) após esta
+        const proxEntrada = todosOrdenados.find(r =>
+          (r.tipo === "ENTRADA_LIVRE" || r.tipo === "ENTRADA") &&
+          new Date(r.data_hora).getTime() > entMs &&
+          r.id !== ent.id
+        );
+        // Limite = próxima entrada OU 24h, o que vier primeiro
+        const limiteMs = Math.min(
+          proxEntrada ? new Date(proxEntrada.data_hora).getTime() : Infinity,
+          entMs + 24 * 3600000
+        );
+
         const s = todosOrdenados.find(r =>
           r.tipo === "SAIDA_LIVRE" &&
           new Date(r.data_hora).getTime() > entMs &&
-          new Date(r.data_hora).getTime() - entMs <= 24 * 3600000 &&
+          new Date(r.data_hora).getTime() < limiteMs &&
           !saidasUsadas.includes(r.id)
         );
         if (s) { saidasUsadas.push(s.id); turnos.push({ entrada: ent, saida: s }); horasNoDia += diffHorasMinutos(new Date(ent.data_hora), new Date(s.data_hora)); }
@@ -258,24 +272,13 @@ async function gerarPdfClt(colaborador, anoMes) {
 
       entradaRef = entradasLivre[0];
 
-      // Última saída registrada (pode ser do intervalo se saída final estiver faltando)
-      const ultimaSaidaDisponivel = [...turnos].reverse().find(t => t.saida)?.saida || null;
-
       if (turnos.length >= 2 && turnos[0].saida) {
-        // 2+ turnos: mapeia para colunas CLT (saída int / volta int / saída final)
+        // 2+ turnos: preenche colunas CLT (saída int. / volta int. / saída final)
         saidaAlmocoRef = turnos[0].saida;
         voltaAlmocoRef = turnos[1].entrada;
-        // Saída final = último turno completo; se incompleto, fica null (aparece "–")
-        saidaRef = turnos[turnos.length - 1].saida;
+        saidaRef = turnos[turnos.length - 1].saida; // null se saída final ausente
       } else {
         saidaRef = turnos[0]?.saida || null;
-      }
-
-      // Se saída final está faltando mas há pelo menos um par completo,
-      // guarda a última saída disponível para exibir na coluna e
-      // sinaliza com observação.
-      if (!saidaRef && ultimaSaidaDisponivel && horasNoDia > 0) {
-        saidaRef = ultimaSaidaDisponivel; // exibe última saída conhecida
       }
     }
 
@@ -292,18 +295,13 @@ async function gerarPdfClt(colaborador, anoMes) {
     } else if (!trabalhaEsteDia) {
       observacao = "—";
     } else if (temRegistro) {
-      // Verifica se o último turno do dia ficou sem saída registrada
-      const entradasLivreRef = todosOrdenados.filter(r => r.tipo === "ENTRADA_LIVRE" && dataBRT(r.data_hora) === diaStr);
-      if (entradasLivreRef.length > 0) {
-        const ultimaEntradaMs = new Date(entradasLivreRef[entradasLivreRef.length - 1].data_hora).getTime();
-        const temSaidaFinal = todosOrdenados.some(r =>
-          r.tipo === "SAIDA_LIVRE" &&
-          new Date(r.data_hora).getTime() > ultimaEntradaMs &&
-          new Date(r.data_hora).getTime() - ultimaEntradaMs <= 24 * 3600000
-        );
-        if (!temSaidaFinal && horasNoDia > 0) observacao = "Saída incompleta";
+      // "Saída incompleta" se qualquer turno do dia ficou sem saída
+      if (turnos && turnos.some(t => !t.saida) && horasNoDia > 0) {
+        observacao = "Saída incompleta";
       }
       extraOuAtraso = horasNoDia - jornadaEsperada;
+      // Tolerância de 5 minutos na volta do intervalo: déficit ≤ 5 min é zerado
+      if (extraOuAtraso < 0 && extraOuAtraso >= -5 / 60) extraOuAtraso = 0;
       totalHoras += horasNoDia;
       totalExtra += extraOuAtraso;
     } else {
