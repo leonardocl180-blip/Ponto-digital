@@ -354,7 +354,10 @@ async function gerarPdfClt(colaborador, anoMes) {
 // ------------------------------------------------------------
 async function gerarPdfMei(colaborador, periodo, dataRefStr) {
   const { inicio, fim } = calcularPeriodoMei(dataRefStr, periodo);
-  const fimQuery = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate() + 1, 5, 59, 59);
+  const fimQuery = new Date(Date.UTC(
+    fim.getFullYear(), fim.getMonth(), fim.getDate() + 1,
+    15, 0, 0  // 15:00 UTC = 12:00 BRT do dia seguinte (cobre turnos noturnos)
+  ));
 
   const [{ data: registros }, { data: configMei }] = await Promise.all([
     supabaseClient
@@ -395,9 +398,22 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
     const turnos = [];
     const saidasUsadas = [];
     for (const ent of entradas) {
+      const entMs = new Date(ent.data_hora).getTime();
+      // Mesmo limite do CLT: próxima entrada como teto + 24h máx.
+      // Evita parear com saídas de dias seguintes para turnos tarde.
+      const proxEntrada = todosOrdenadosMei.find(r =>
+        (r.tipo === "ENTRADA_LIVRE" || r.tipo === "ENTRADA") &&
+        new Date(r.data_hora).getTime() > entMs &&
+        r.id !== ent.id
+      );
+      const limiteMs = Math.min(
+        proxEntrada ? new Date(proxEntrada.data_hora).getTime() : Infinity,
+        entMs + 24 * 3600000
+      );
       const saida = todosOrdenadosMei.find(r =>
         (r.tipo === "SAIDA_LIVRE" || r.tipo === "SAIDA") &&
-        new Date(r.data_hora) > new Date(ent.data_hora) &&
+        new Date(r.data_hora).getTime() > entMs &&
+        new Date(r.data_hora).getTime() < limiteMs &&
         !saidasUsadas.includes(r.id)
       );
       if (saida) {
