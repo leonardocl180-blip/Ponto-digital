@@ -366,37 +366,99 @@ async function abrirCamera() {
       <div class="modal-pin" style="max-width:420px;">
         <h3>Sorria! 📸</h3>
         <p class="texto-suave texto-pequeno mt-8">Confirme sua identidade para registrar o ponto</p>
-        <div class="camera-wrap mt-16">
-          <video id="video-camera" autoplay playsinline></video>
+        <div class="camera-wrap mt-16" style="position:relative;">
+          <video id="video-camera" autoplay playsinline
+            style="transform:scaleX(-1);width:100%;border-radius:var(--raio-medio);display:block;"></video>
+          <div id="face-overlay" style="
+            position:absolute;inset:0;border-radius:var(--raio-medio);
+            border:4px solid transparent;transition:border-color 0.2s;pointer-events:none;"></div>
         </div>
-        <div id="camera-status" class="texto-suave texto-pequeno mt-8" style="text-align:center;"></div>
+        <div id="camera-status" class="texto-pequeno mt-8" style="text-align:center;font-weight:600;"></div>
         <div class="stack mt-16">
-          <button class="btn btn--primario btn--bloco" id="btn-tirar-foto">Tirar foto e registrar</button>
+          <button class="btn btn--primario btn--bloco" id="btn-tirar-foto" disabled
+            style="opacity:0.5;cursor:not-allowed;">Aguardando rosto...</button>
           <button class="btn btn--ghost" id="btn-cancelar-camera">Cancelar</button>
         </div>
       </div>
     </div>
   `;
 
-  // Cancelar: para a câmera E volta sem registrar nada
   document.getElementById("btn-cancelar-camera").addEventListener("click", () => {
     pararCamera();
     fecharModais();
   });
   document.getElementById("btn-tirar-foto").addEventListener("click", tirarFotoERegistrar);
 
+  let faceInterval = null;
+
+  function pararDeteccao() {
+    if (faceInterval) { clearInterval(faceInterval); faceInterval = null; }
+  }
+
+  async function iniciarDeteccao(video) {
+    // FaceDetector API — disponível no Chrome/Android
+    if (!("FaceDetector" in window)) {
+      // Sem suporte: habilita botão diretamente
+      habilitarBotao();
+      return;
+    }
+    const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+    const overlay  = document.getElementById("face-overlay");
+    const status   = document.getElementById("camera-status");
+
+    faceInterval = setInterval(async () => {
+      if (!document.getElementById("video-camera")) { pararDeteccao(); return; }
+      try {
+        const faces = await detector.detect(video);
+        if (faces.length > 0) {
+          overlay.style.borderColor = "#4caf50";
+          status.style.color = "#4caf50";
+          status.textContent  = "✓ Rosto detectado";
+          habilitarBotao();
+        } else {
+          overlay.style.borderColor = "#e57373";
+          status.style.color = "#e57373";
+          status.textContent  = "Posicione seu rosto no centro";
+          desabilitarBotao();
+        }
+      } catch (_) { habilitarBotao(); }
+    }, 300);
+  }
+
+  function habilitarBotao() {
+    const btn = document.getElementById("btn-tirar-foto");
+    if (!btn) return;
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.style.cursor  = "pointer";
+    btn.textContent   = "Tirar foto e registrar";
+  }
+
+  function desabilitarBotao() {
+    const btn = document.getElementById("btn-tirar-foto");
+    if (!btn) return;
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    btn.style.cursor  = "not-allowed";
+  }
+
+  // Guarda referência para parar detecção junto com a câmera
+  const _pararCamera = pararCamera;
+  window._pararCameraComDeteccao = () => { pararDeteccao(); _pararCamera(); };
+
   try {
     streamCamera = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-    document.getElementById("video-camera").srcObject = streamCamera;
+    const video  = document.getElementById("video-camera");
+    video.srcObject = streamCamera;
+    video.addEventListener("playing", () => iniciarDeteccao(video), { once: true });
   } catch (e) {
     console.error("Erro ao acessar câmera:", e);
-    // Câmera indisponível: avisa e oferece registrar sem foto
-    // (não registra silenciosamente)
     const statusEl = document.getElementById("camera-status");
     const tirarBtn = document.getElementById("btn-tirar-foto");
-    if (statusEl) statusEl.textContent = "Câmera indisponível neste dispositivo.";
+    if (statusEl) { statusEl.textContent = "Câmera indisponível neste dispositivo."; statusEl.style.color = "#e57373"; }
     if (tirarBtn) {
       tirarBtn.textContent = "Registrar sem foto";
+      tirarBtn.disabled = false; tirarBtn.style.opacity = "1"; tirarBtn.style.cursor = "pointer";
       tirarBtn.onclick = async () => { await registrarEFinalizar(null); };
     }
   }
@@ -412,13 +474,17 @@ function pararCamera() {
 async function tirarFotoERegistrar() {
   const video = document.getElementById("video-camera");
   const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth || 480;
+  canvas.width  = video.videoWidth  || 480;
   canvas.height = video.videoHeight || 360;
   const ctx = canvas.getContext("2d");
+  // Espelha o canvas para corresponder ao que o usuário viu na câmera
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   fotoCapturadaDataUrl = canvas.toDataURL("image/jpeg", 0.7);
 
-  pararCamera();
+  if (window._pararCameraComDeteccao) window._pararCameraComDeteccao();
+  else pararCamera();
   await registrarEFinalizar(fotoCapturadaDataUrl);
 }
 
