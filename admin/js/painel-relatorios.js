@@ -295,15 +295,19 @@ async function gerarPdfClt(colaborador, anoMes) {
     } else if (!trabalhaEsteDia) {
       observacao = "—";
     } else if (temRegistro) {
-      // "Saída incompleta" se qualquer turno do dia ficou sem saída
-      if (turnos && turnos.some(t => !t.saida) && horasNoDia > 0) {
+      // "Saída incompleta" — tanto para modo LIVRE quanto SIMPLES
+      const saidaFaltando = !saidaRef && entradaRef;
+      if (saidaFaltando || (turnos.length > 0 && turnos.some(t => !t.saida) && horasNoDia > 0)) {
         observacao = "Saída incompleta";
       }
-      extraOuAtraso = horasNoDia - jornadaEsperada;
-      // Tolerância de 5 minutos na volta do intervalo: déficit ≤ 5 min é zerado
-      if (extraOuAtraso < 0 && extraOuAtraso >= -5 / 60) extraOuAtraso = 0;
-      totalHoras += horasNoDia;
-      totalExtra += extraOuAtraso;
+      // Só acumula horas e extra quando há pelo menos um turno completo.
+      // Se horasNoDia = 0 (todos abertos), não penaliza com -jornadaEsperada.
+      if (horasNoDia > 0) {
+        extraOuAtraso = horasNoDia - jornadaEsperada;
+        if (extraOuAtraso < 0 && extraOuAtraso >= -5 / 60) extraOuAtraso = 0;
+        totalHoras += horasNoDia;
+        totalExtra += extraOuAtraso;
+      }
     } else {
       observacao = "Sem registro";
     }
