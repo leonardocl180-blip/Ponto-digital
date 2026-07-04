@@ -17,6 +17,36 @@ let fotoCapturadaDataUrl = null;
 let tipoBatidaEscolhido = null;
 
 // ------------------------------------------------------------
+// face-api.js — carregamento de modelos (lazy, uma única vez)
+// ------------------------------------------------------------
+const FACE_API_MODELS_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.14/model/";
+let faceModelsLoaded = false;
+
+async function carregarModelosFace() {
+  if (faceModelsLoaded || typeof faceapi === "undefined") return;
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODELS_URL),
+    faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODELS_URL),
+    faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODELS_URL),
+  ]);
+  faceModelsLoaded = true;
+}
+
+async function extrairDescritorRosto(videoOuImg) {
+  await carregarModelosFace();
+  const det = await faceapi
+    .detectSingleFace(videoOuImg, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+  return det ? Array.from(det.descriptor) : null;
+}
+
+function descritoresConfere(ref, atual, limiar = 0.5) {
+  if (!ref || !atual) return false;
+  return faceapi.euclideanDistance(new Float32Array(ref), new Float32Array(atual)) < limiar;
+}
+
+// ------------------------------------------------------------
 // Relógio em tempo real
 // ------------------------------------------------------------
 function atualizarRelogio() {
@@ -35,7 +65,7 @@ setInterval(atualizarRelogio, 1000 * 15);
 async function carregarColaboradores() {
   const { data, error } = await supabaseClient
     .from("quiosque_colaboradores")
-    .select("id, nome, foto_url")
+    .select("id, nome, foto_url, reconhecimento_facial_ativo, descritor_facial")
     .order("nome");
 
   if (error) {
@@ -361,22 +391,33 @@ function ligarBotoesOpcoes() {
 // Captura de foto
 // ------------------------------------------------------------
 async function abrirCamera() {
+  const precisaReconhecimento =
+    colaboradorSelecionado?.reconhecimento_facial_ativo &&
+    colaboradorSelecionado?.descritor_facial;
+
   elModais.innerHTML = `
     <div class="modal-fundo" id="modal-camera-fundo">
       <div class="modal-pin" style="max-width:420px;">
-        <h3>Sorria! 📸</h3>
-        <p class="texto-suave texto-pequeno mt-8">Confirme sua identidade para registrar o ponto</p>
+        <h3>${precisaReconhecimento ? "🔐 Verificação facial" : "Sorria! 📸"}</h3>
+        <p class="texto-suave texto-pequeno mt-8">
+          ${precisaReconhecimento
+            ? "Posicione seu rosto para confirmar a identidade"
+            : "Confirme sua identidade para registrar o ponto"}
+        </p>
         <div class="camera-wrap mt-16" style="position:relative;">
           <video id="video-camera" autoplay playsinline
             style="transform:scaleX(-1);width:100%;border-radius:var(--raio-medio);display:block;"></video>
           <div id="face-overlay" style="
             position:absolute;inset:0;border-radius:var(--raio-medio);
-            border:4px solid transparent;transition:border-color 0.2s;pointer-events:none;"></div>
+            border:4px solid transparent;transition:border-color 0.25s;pointer-events:none;"></div>
         </div>
-        <div id="camera-status" class="texto-pequeno mt-8" style="text-align:center;font-weight:600;"></div>
+        <div id="camera-status" class="texto-pequeno mt-8"
+          style="text-align:center;font-weight:600;min-height:20px;"></div>
         <div class="stack mt-16">
-          <button class="btn btn--primario btn--bloco" id="btn-tirar-foto" disabled
-            style="opacity:0.5;cursor:not-allowed;">Aguardando rosto...</button>
+          <button class="btn btn--primario btn--bloco" id="btn-tirar-foto"
+            disabled style="opacity:0.5;cursor:not-allowed;">
+            ${precisaReconhecimento ? "Aguardando verificação..." : "Aguardando rosto..."}
+          </button>
           <button class="btn btn--ghost" id="btn-cancelar-camera">Cancelar</button>
         </div>
       </div>
@@ -384,82 +425,95 @@ async function abrirCamera() {
   `;
 
   document.getElementById("btn-cancelar-camera").addEventListener("click", () => {
-    pararCamera();
-    fecharModais();
+    pararCamera(); fecharModais();
   });
   document.getElementById("btn-tirar-foto").addEventListener("click", tirarFotoERegistrar);
 
   let faceInterval = null;
 
-  function pararDeteccao() {
-    if (faceInterval) { clearInterval(faceInterval); faceInterval = null; }
+  function habilitarBotao(label) {
+    const btn = document.getElementById("btn-tirar-foto");
+    if (!btn) return;
+    btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
+    btn.textContent = label || "Tirar foto e registrar";
+  }
+  function desabilitarBotao(label) {
+    const btn = document.getElementById("btn-tirar-foto");
+    if (!btn) return;
+    btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed";
+    btn.textContent = label || "Aguardando rosto...";
   }
 
   async function iniciarDeteccao(video) {
-    // FaceDetector API — disponível no Chrome/Android
-    if (!("FaceDetector" in window)) {
-      // Sem suporte: habilita botão diretamente
-      habilitarBotao();
-      return;
-    }
-    const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-    const overlay  = document.getElementById("face-overlay");
-    const status   = document.getElementById("camera-status");
+    if (typeof faceapi === "undefined") { habilitarBotao(); return; }
+    try { await carregarModelosFace(); } catch { habilitarBotao(); return; }
+
+    const overlay = document.getElementById("face-overlay");
+    const status  = document.getElementById("camera-status");
 
     faceInterval = setInterval(async () => {
-      if (!document.getElementById("video-camera")) { pararDeteccao(); return; }
+      if (!document.getElementById("video-camera")) { clearInterval(faceInterval); return; }
       try {
-        const faces = await detector.detect(video);
-        if (faces.length > 0) {
-          overlay.style.borderColor = "#4caf50";
-          status.style.color = "#4caf50";
-          status.textContent  = "✓ Rosto detectado";
-          habilitarBotao();
-        } else {
+        const det = await faceapi
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!det) {
           overlay.style.borderColor = "#e57373";
           status.style.color = "#e57373";
-          status.textContent  = "Posicione seu rosto no centro";
-          desabilitarBotao();
+          status.textContent = "Posicione seu rosto no centro";
+          desabilitarBotao(precisaReconhecimento ? "Aguardando verificação..." : "Aguardando rosto...");
+          return;
+        }
+
+        const descriptorAtual = Array.from(det.descriptor);
+
+        if (precisaReconhecimento) {
+          const confere = descritoresConfere(
+            colaboradorSelecionado.descritor_facial,
+            descriptorAtual
+          );
+          if (confere) {
+            overlay.style.borderColor = "#4caf50";
+            status.style.color = "#4caf50";
+            status.textContent = "✓ Identidade confirmada";
+            habilitarBotao("Registrar ponto");
+          } else {
+            overlay.style.borderColor = "#e57373";
+            status.style.color = "#e57373";
+            status.textContent = "✗ Rosto não reconhecido";
+            desabilitarBotao("Aguardando verificação...");
+          }
+        } else {
+          overlay.style.borderColor = "#4caf50";
+          status.style.color = "#4caf50";
+          status.textContent = "✓ Rosto detectado";
+          habilitarBotao("Tirar foto e registrar");
         }
       } catch (_) { habilitarBotao(); }
-    }, 300);
+    }, 400);
   }
 
-  function habilitarBotao() {
-    const btn = document.getElementById("btn-tirar-foto");
-    if (!btn) return;
-    btn.disabled = false;
-    btn.style.opacity = "1";
-    btn.style.cursor  = "pointer";
-    btn.textContent   = "Tirar foto e registrar";
-  }
-
-  function desabilitarBotao() {
-    const btn = document.getElementById("btn-tirar-foto");
-    if (!btn) return;
-    btn.disabled = true;
-    btn.style.opacity = "0.5";
-    btn.style.cursor  = "not-allowed";
-  }
-
-  // Guarda referência para parar detecção junto com a câmera
-  const _pararCamera = pararCamera;
-  window._pararCameraComDeteccao = () => { pararDeteccao(); _pararCamera(); };
+  window._pararCameraComDeteccao = () => {
+    if (faceInterval) { clearInterval(faceInterval); faceInterval = null; }
+    pararCamera();
+  };
 
   try {
     streamCamera = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-    const video  = document.getElementById("video-camera");
+    const video = document.getElementById("video-camera");
     video.srcObject = streamCamera;
     video.addEventListener("playing", () => iniciarDeteccao(video), { once: true });
   } catch (e) {
-    console.error("Erro ao acessar câmera:", e);
+    console.error("Câmera indisponível:", e);
     const statusEl = document.getElementById("camera-status");
-    const tirarBtn = document.getElementById("btn-tirar-foto");
-    if (statusEl) { statusEl.textContent = "Câmera indisponível neste dispositivo."; statusEl.style.color = "#e57373"; }
-    if (tirarBtn) {
-      tirarBtn.textContent = "Registrar sem foto";
-      tirarBtn.disabled = false; tirarBtn.style.opacity = "1"; tirarBtn.style.cursor = "pointer";
-      tirarBtn.onclick = async () => { await registrarEFinalizar(null); };
+    if (statusEl) { statusEl.textContent = "Câmera indisponível."; statusEl.style.color = "#e57373"; }
+    const btn = document.getElementById("btn-tirar-foto");
+    if (btn) {
+      btn.textContent = "Registrar sem foto"; btn.disabled = false;
+      btn.style.opacity = "1"; btn.style.cursor = "pointer";
+      btn.onclick = async () => { await registrarEFinalizar(null); };
     }
   }
 }
