@@ -151,6 +151,21 @@ function abrirModalColaborador(colaborador) {
             <p class="texto-suave texto-pequeno mt-8">Usado para calcular o valor total no relatório PDF.</p>
           </div>
 
+          <div style="display:flex;align-items:center;gap:12px;margin-top:16px;">
+            <label class="bsk-label" style="margin:0;flex:1;">Reconhecimento facial</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="f-reconhecimento" ${c.reconhecimento_facial_ativo ? "checked" : ""}>
+              <span class="texto-pequeno texto-suave" id="label-reconhecimento">
+                ${c.reconhecimento_facial_ativo ? "Ativado" : "Desativado"}
+              </span>
+            </label>
+          </div>
+          ${ehEdicao && c.reconhecimento_facial_ativo !== undefined ? `
+          <button type="button" class="btn btn--secundario btn--bloco mt-8" id="btn-cadastrar-rosto">
+            📷 ${c.descritor_facial ? "Atualizar rosto de referência" : "Cadastrar rosto de referência"}
+          </button>
+          ` : ""}
+
           <div id="msg-erro-colab" class="texto-pequeno" style="color: var(--bsk-vermelho); min-height: 18px;"></div>
 
           <div class="row mt-8">
@@ -186,6 +201,21 @@ function abrirModalColaborador(colaborador) {
   }
 
   document.getElementById("btn-cancelar-colab").addEventListener("click", () => modais.innerHTML = "");
+
+  // Toggle reconhecimento facial
+  document.getElementById("f-reconhecimento")?.addEventListener("change", function () {
+    const label = document.getElementById("label-reconhecimento");
+    if (label) label.textContent = this.checked ? "Ativado" : "Desativado";
+  });
+
+  // Cadastrar rosto de referência
+  document.getElementById("btn-cadastrar-rosto")?.addEventListener("click", () => {
+    abrirCameraReferencia(c.id, () => {
+      // Após cadastrar, atualiza o botão
+      const btn = document.getElementById("btn-cadastrar-rosto");
+      if (btn) btn.textContent = "📷 Atualizar rosto de referência";
+    });
+  });
   document.getElementById("modal-colab-fundo").addEventListener("click", (e) => {
     if (e.target.id === "modal-colab-fundo") modais.innerHTML = "";
   });
@@ -203,12 +233,14 @@ async function salvarColaborador(idExistente) {
   const diasSelecionados = Array.from(document.querySelectorAll("#checkbox-dias input:checked"))
     .map(cb => parseInt(cb.value, 10));
 
+  const reconhecimentoEl = document.getElementById("f-reconhecimento");
   const payload = {
     nome: document.getElementById("f-nome").value.trim(),
     cargo: document.getElementById("f-cargo").value.trim() || null,
     pin: document.getElementById("f-pin").value.trim(),
     vinculo,
     tipo_registro: document.getElementById("f-tipo-registro").value,
+    reconhecimento_facial_ativo: reconhecimentoEl ? reconhecimentoEl.checked : false,
   };
 
   if (vinculo === "CLT") {
@@ -274,3 +306,119 @@ async function excluirColaborador(id) {
 }
 
 document.addEventListener("bsk:perfil-carregado", carregarColaboradoresPainel);
+
+// ============================================================
+// Cadastro de rosto de referência para reconhecimento facial
+// ============================================================
+const FACE_API_MODELS_URL_ADMIN = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.14/model/";
+let adminFaceModelsLoaded = false;
+
+async function carregarModelosFaceAdmin() {
+  if (adminFaceModelsLoaded || typeof faceapi === "undefined") return;
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODELS_URL_ADMIN),
+    faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODELS_URL_ADMIN),
+    faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODELS_URL_ADMIN),
+  ]);
+  adminFaceModelsLoaded = true;
+}
+
+async function abrirCameraReferencia(colaboradorId, onSucesso) {
+  const modais = document.getElementById("camada-modais");
+  // Sobrepõe o modal atual com um de câmera
+  const wrapId = "modal-camera-ref";
+  const div = document.createElement("div");
+  div.id = wrapId;
+  div.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;";
+  div.innerHTML = `
+    <div class="card" style="max-width:420px;width:100%;text-align:center;">
+      <h3>📷 Cadastrar rosto de referência</h3>
+      <p class="texto-suave texto-pequeno mt-8">Posicione o rosto do colaborador e aguarde a detecção</p>
+      <div style="position:relative;margin-top:16px;">
+        <video id="video-ref" autoplay playsinline
+          style="transform:scaleX(-1);width:100%;border-radius:var(--raio-medio);display:block;"></video>
+        <div id="overlay-ref" style="position:absolute;inset:0;border-radius:var(--raio-medio);border:4px solid transparent;transition:border-color 0.25s;pointer-events:none;"></div>
+      </div>
+      <p id="status-ref" class="texto-pequeno mt-8" style="font-weight:600;min-height:20px;"></p>
+      <div class="row mt-16">
+        <button class="btn btn--secundario flex-1" id="btn-cancelar-ref">Cancelar</button>
+        <button class="btn btn--primario flex-1" id="btn-capturar-ref" disabled style="opacity:0.5;cursor:not-allowed;">Capturar</button>
+      </div>
+      <p id="msg-ref" class="texto-pequeno mt-8" style="color:#e57373;"></p>
+    </div>
+  `;
+  document.body.appendChild(div);
+
+  let streamRef = null;
+  let faceIntervalRef = null;
+  let descriptorCapturado = null;
+
+  function pararTudo() {
+    if (faceIntervalRef) { clearInterval(faceIntervalRef); faceIntervalRef = null; }
+    if (streamRef) { streamRef.getTracks().forEach(t => t.stop()); streamRef = null; }
+    document.getElementById(wrapId)?.remove();
+  }
+
+  document.getElementById("btn-cancelar-ref").addEventListener("click", pararTudo);
+
+  document.getElementById("btn-capturar-ref").addEventListener("click", async () => {
+    if (!descriptorCapturado) return;
+    const msgEl = document.getElementById("msg-ref");
+    msgEl.style.color = "#aaa";
+    msgEl.textContent = "Salvando...";
+    const { error } = await supabaseClient
+      .from("colaboradores")
+      .update({ descritor_facial: descriptorCapturado })
+      .eq("id", colaboradorId);
+    if (error) { msgEl.style.color = "#e57373"; msgEl.textContent = "Erro: " + error.message; return; }
+    pararTudo();
+    if (onSucesso) onSucesso();
+  });
+
+  try {
+    streamRef = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    const video = document.getElementById("video-ref");
+    video.srcObject = streamRef;
+
+    video.addEventListener("playing", async () => {
+      const statusEl = document.getElementById("status-ref");
+      statusEl.textContent = "Carregando modelos...";
+      statusEl.style.color = "#aaa";
+      try {
+        await carregarModelosFaceAdmin();
+      } catch (e) {
+        statusEl.textContent = "Erro ao carregar modelos de reconhecimento facial.";
+        statusEl.style.color = "#e57373";
+        return;
+      }
+
+      const overlay = document.getElementById("overlay-ref");
+      faceIntervalRef = setInterval(async () => {
+        if (!document.getElementById("video-ref")) { clearInterval(faceIntervalRef); return; }
+        try {
+          const det = await faceapi
+            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+
+          const btn = document.getElementById("btn-capturar-ref");
+          if (det) {
+            descriptorCapturado = Array.from(det.descriptor);
+            overlay.style.borderColor = "#4caf50";
+            statusEl.style.color = "#4caf50";
+            statusEl.textContent = "✓ Rosto detectado — pronto para capturar";
+            if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer"; }
+          } else {
+            descriptorCapturado = null;
+            overlay.style.borderColor = "#e57373";
+            statusEl.style.color = "#e57373";
+            statusEl.textContent = "Posicione o rosto no centro";
+            if (btn) { btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed"; }
+          }
+        } catch (_) {}
+      }, 400);
+    }, { once: true });
+  } catch (e) {
+    document.getElementById("msg-ref").textContent = "Câmera indisponível neste dispositivo.";
+  }
+}
