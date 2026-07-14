@@ -33,6 +33,7 @@ async function verificarAutenticacaoEcarregarPerfil() {
 
   if (perfil.tipo === "MASTER") {
     document.getElementById("nav-gestores").style.display = "flex";
+    document.getElementById("nav-configuracoes").style.display = "flex";
   }
 
   document.dispatchEvent(new CustomEvent("bsk:perfil-carregado", { detail: perfil }));

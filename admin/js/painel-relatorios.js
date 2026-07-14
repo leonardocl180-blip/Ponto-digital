@@ -96,6 +96,48 @@ function dataBRT(isoStr) {
     .toISOString().slice(0, 10);
 }
 
+// ------------------------------------------------------------
+// Feriados nacionais brasileiros — fixos + móveis (Páscoa)
+// ------------------------------------------------------------
+function calcularFeriadosBrasileiros(ano) {
+  // Algoritmo anônimo gregoriano para o domingo de Páscoa
+  function pascoa(ano) {
+    const a=ano%19, b=Math.floor(ano/100), c=ano%100;
+    const d=Math.floor(b/4), e=b%4, f=Math.floor((b+8)/25);
+    const g=Math.floor((b-f+1)/3);
+    const h=(19*a+b-d-g+15)%30;
+    const i=Math.floor(c/4), k=c%4;
+    const l=(32+2*e+2*i-h-k)%7;
+    const m=Math.floor((a+11*h+22*l)/451);
+    const mes=Math.floor((h+l-7*m+114)/31);
+    const dia=((h+l-7*m+114)%31)+1;
+    return new Date(ano, mes-1, dia);
+  }
+  const p = pascoa(ano);
+  const fmt = d => {
+    const u = new Date(d);
+    return `${u.getFullYear()}-${String(u.getMonth()+1).padStart(2,"0")}-${String(u.getDate()).padStart(2,"0")}`;
+  };
+  const add = (d, n) => { const r=new Date(d); r.setDate(r.getDate()+n); return r; };
+
+  return new Set([
+    `${ano}-01-01`,  // Confraternização Universal
+    fmt(add(p,-48)), // Segunda de Carnaval
+    fmt(add(p,-47)), // Terça de Carnaval
+    fmt(add(p,-2)),  // Sexta-feira Santa
+    fmt(p),          // Páscoa
+    `${ano}-04-21`,  // Tiradentes
+    `${ano}-05-01`,  // Dia do Trabalho
+    fmt(add(p,60)),  // Corpus Christi
+    `${ano}-09-07`,  // Independência
+    `${ano}-10-12`,  // N. Sra. Aparecida
+    `${ano}-11-02`,  // Finados
+    `${ano}-11-15`,  // Proclamação da República
+    `${ano}-11-20`,  // Consciência Negra (lei federal desde 2023)
+    `${ano}-12-25`,  // Natal
+  ]);
+}
+
 function gerarListaDias(inicio, fim) {
   const dias = [];
   const cursor = new Date(inicio);
@@ -189,6 +231,13 @@ async function gerarPdfClt(colaborador, anoMes) {
   const dias = gerarListaDias(inicio, fim);
   const linhas = [];
   let totalHoras = 0, totalExtra = 0, totalFaltas = 0;
+  let horasExtraNormais = 0, horasExtraEspeciais = 0;
+
+  // Feriados do ano do relatório
+  const feriados = calcularFeriadosBrasileiros(ano);
+
+  const pctNormal   = colaborador.percentual_hora_extra_normal   ?? 50;
+  const pctEspecial = colaborador.percentual_hora_extra_especial ?? 100;
 
   const jornadaEsperada = (() => {
     if (!colaborador.horario_entrada || !colaborador.horario_saida) return 8;
@@ -300,11 +349,28 @@ async function gerarPdfClt(colaborador, anoMes) {
       if (saidaFaltando || (turnos.length > 0 && turnos.some(t => !t.saida) && horasNoDia > 0)) {
         observacao = "Saída incompleta";
       }
-      // Só acumula horas e extra quando há pelo menos um turno completo.
-      // Se horasNoDia = 0 (todos abertos), não penaliza com -jornadaEsperada.
+
       if (horasNoDia > 0) {
-        extraOuAtraso = horasNoDia - jornadaEsperada;
-        if (extraOuAtraso < 0 && extraOuAtraso >= -5 / 60) extraOuAtraso = 0;
+        // Verifica se é dia especial: feriado, domingo fora da escala, ou folga trabalhada
+        const diaSemana = dia.getDay();
+        const diasTrab  = colaborador.dias_trabalho || [1,2,3,4,5];
+        const ehFeriado  = feriados.has(diaStr);
+        const ehDomingoForaEscala = diaSemana === 0 && !diasTrab.includes(0);
+        const ehFolgaTrabalhada   = ausenciaDoDia?.tipo === "FOLGA";
+        const ehDiaEspecial = ehFeriado || ehDomingoForaEscala || ehFolgaTrabalhada;
+
+        if (ehDiaEspecial) {
+          // Todas as horas do dia especial contam como hora extra especial
+          horasExtraEspeciais += horasNoDia;
+          extraOuAtraso = horasNoDia; // positivo: dia bônus
+          if (observacao === "") {
+            observacao = ehFeriado ? "Feriado" : ehDomingoForaEscala ? "Domingo" : "Folga trabalhada";
+          }
+        } else {
+          extraOuAtraso = horasNoDia - jornadaEsperada;
+          if (extraOuAtraso < 0 && extraOuAtraso >= -5/60) extraOuAtraso = 0;
+          if (extraOuAtraso > 0) horasExtraNormais += extraOuAtraso;
+        }
         totalHoras += horasNoDia;
         totalExtra += extraOuAtraso;
       }
@@ -346,7 +412,34 @@ async function gerarPdfClt(colaborador, anoMes) {
   doc.setFont("helvetica", "normal");
   doc.text(`Horas trabalhadas: ${formatarHoras(totalHoras)}`, 14, yFinal); yFinal += 5;
   doc.text(`Saldo de horas extras/atrasos: ${formatarHoras(totalExtra)}`, 14, yFinal); yFinal += 5;
-  doc.text(`Faltas: ${totalFaltas}`, 14, yFinal);
+  doc.text(`H.E. normais (${pctNormal}%): ${formatarHoras(horasExtraNormais)}`, 14, yFinal); yFinal += 5;
+  doc.text(`H.E. especiais (${pctEspecial}%): ${formatarHoras(horasExtraEspeciais)}`, 14, yFinal); yFinal += 5;
+  doc.text(`Faltas: ${totalFaltas}`, 14, yFinal); yFinal += 5;
+
+  if (colaborador.salario_base) {
+    const diasUteisNoMes = dias.filter(d => {
+      const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      return (colaborador.dias_trabalho || [1,2,3,4,5]).includes(d.getDay()) && !feriados.has(ds);
+    }).length;
+    const horasMensais     = (diasUteisNoMes * jornadaEsperada) || 220;
+    const valorHora        = colaborador.salario_base / horasMensais;
+    const valorExtraNormal   = horasExtraNormais   * valorHora * (pctNormal   / 100);
+    const valorExtraEspecial = horasExtraEspeciais * valorHora * (pctEspecial / 100);
+    const totalSalario     = colaborador.salario_base + valorExtraNormal + valorExtraEspecial;
+    const brl = v => `R$ ${v.toFixed(2).replace(".", ",")}`;
+
+    yFinal += 2;
+    doc.setFont("helvetica", "bold");
+    doc.text("Cálculo salarial", 14, yFinal); yFinal += 6;
+    doc.setFont("helvetica", "normal");
+    doc.text(`Salário base: ${brl(colaborador.salario_base)}`, 14, yFinal); yFinal += 5;
+    doc.text(`Valor/hora: ${brl(valorHora)} (${horasMensais.toFixed(0)}h/mês)`, 14, yFinal); yFinal += 5;
+    doc.text(`H.E. normais (${formatarHoras(horasExtraNormais)} × ${pctNormal}%): ${brl(valorExtraNormal)}`, 14, yFinal); yFinal += 5;
+    doc.text(`H.E. especiais (${formatarHoras(horasExtraEspeciais)} × ${pctEspecial}%): ${brl(valorExtraEspecial)}`, 14, yFinal); yFinal += 5;
+    doc.setFont("helvetica", "bold");
+    doc.text(`Total a receber: ${brl(totalSalario)}`, 14, yFinal); yFinal += 5;
+    doc.setFont("helvetica", "normal");
+  }
 
   desenharRodapeAssinatura(doc, yFinal);
 

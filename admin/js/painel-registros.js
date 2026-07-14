@@ -76,8 +76,8 @@ async function carregarRegistros() {
         <td>
           <div class="acoes-linha">
             ${r.foto_url ? `<button data-acao="ver-foto" data-url="${r.foto_url}">Foto</button>` : ""}
-            <button data-acao="editar-registro" data-id="${r.id}" data-datahora="${r.data_hora}">Editar</button>
-            <button data-acao="excluir-registro" data-id="${r.id}">Excluir</button>
+            <button data-acao="editar-registro" data-id="${r.id}" data-datahora="${r.data_hora}" data-tipo="${r.tipo}" data-colab="${r.colaborador_id}">Editar</button>
+            <button data-acao="excluir-registro" data-id="${r.id}" data-colab="${r.colaborador_id}" data-datahora="${r.data_hora}" data-tipo="${r.tipo}">Excluir</button>
           </div>
         </td>
       </tr>
@@ -88,10 +88,20 @@ async function carregarRegistros() {
     btn.addEventListener("click", () => abrirFotoRegistro(btn.getAttribute("data-url")));
   });
   tbody.querySelectorAll("[data-acao='editar-registro']").forEach(btn => {
-    btn.addEventListener("click", () => editarRegistro(btn.getAttribute("data-id"), btn.getAttribute("data-datahora")));
+    btn.addEventListener("click", () => editarRegistro(
+      btn.getAttribute("data-id"),
+      btn.getAttribute("data-datahora"),
+      btn.getAttribute("data-tipo"),
+      btn.getAttribute("data-colab")
+    ));
   });
   tbody.querySelectorAll("[data-acao='excluir-registro']").forEach(btn => {
-    btn.addEventListener("click", () => excluirRegistro(btn.getAttribute("data-id")));
+    btn.addEventListener("click", () => excluirRegistro(
+      btn.getAttribute("data-id"),
+      btn.getAttribute("data-colab"),
+      btn.getAttribute("data-datahora"),
+      btn.getAttribute("data-tipo")
+    ));
   });
 }
 
@@ -150,6 +160,10 @@ function abrirNovoRegistro() {
             <label class="bsk-label">Data e hora</label>
             <input type="datetime-local" id="f-novo-reg-datahora" class="input" value="${dataHoraLocal}">
           </div>
+          <div>
+            <label class="bsk-label">Observação (opcional)</label>
+            <textarea id="f-novo-reg-obs" class="input" rows="2" placeholder="Motivo do lançamento manual..."></textarea>
+          </div>
         </div>
         <p class="texto-pequeno mt-8" id="erro-novo-registro" style="color:#e57373;"></p>
         <div class="row mt-16">
@@ -180,15 +194,26 @@ async function salvarNovoRegistro() {
   if (!colaboradorId) { erroEl.textContent = "Selecione um colaborador."; return; }
   if (!dataHora) { erroEl.textContent = "Informe a data e hora."; return; }
 
-  const { error } = await supabaseClient.from("registros_ponto").insert({
-    colaborador_id: colaboradorId,
-    tipo,
-    data_hora: new Date(dataHora).toISOString(),
-    origem: "MANUAL_ADMIN",
-    editado_por: perfilLogado.id
-  });
+  const { data: novoReg, error } = await supabaseClient
+    .from("registros_ponto")
+    .insert({
+      colaborador_id: colaboradorId,
+      tipo,
+      data_hora: new Date(dataHora).toISOString(),
+      origem: "MANUAL_ADMIN",
+      editado_por: perfilLogado.id
+    })
+    .select("id")
+    .single();
 
   if (error) { erroEl.textContent = "Erro ao adicionar: " + error.message; return; }
+
+  const obs = document.getElementById("f-novo-reg-obs")?.value?.trim() || null;
+  await inserirLog("ADICIONAR_REGISTRO", colaboradorId, novoReg?.id,
+    null,
+    { colaborador_id: colaboradorId, tipo, data_hora: new Date(dataHora).toISOString() },
+    obs
+  );
 
   document.getElementById("camada-modais").innerHTML = "";
   if (document.getElementById("select-colaborador-registros").value === colaboradorId) {
@@ -196,25 +221,125 @@ async function salvarNovoRegistro() {
   }
 }
 
-async function editarRegistro(id, dataHoraAtual) {
-  const dt = new Date(dataHoraAtual);
-  const dataLocal = dt.toISOString().slice(0, 16); // formato datetime-local
-
-  const novoValor = prompt("Nova data/hora (AAAA-MM-DDTHH:MM):", dataLocal);
-  if (!novoValor) return;
-
-  const { error } = await supabaseClient
-    .from("registros_ponto")
-    .update({ data_hora: new Date(novoValor).toISOString(), editado_por: perfilLogado.id })
-    .eq("id", id);
-
-  if (error) { alert("Erro ao editar: " + error.message); return; }
-  carregarRegistros();
+// Converte UTC ISO para data e hora em BRT (para exibir nos inputs)
+function utcParaBRT(isoStr) {
+  const d = new Date(new Date(isoStr).getTime() - 3 * 3600000);
+  return { data: d.toISOString().slice(0,10), hora: d.toISOString().slice(11,16) };
 }
 
-async function excluirRegistro(id) {
-  if (!confirm("Excluir este registro de ponto?")) return;
+// Converte data+hora BRT para UTC ISO (para salvar no banco)
+function brtParaUTCIso(dataStr, horaStr) {
+  return new Date(`${dataStr}T${horaStr}:00.000-03:00`).toISOString();
+}
+
+async function inserirLog(acao, colaboradorId, registroId, dadosAnteriores, dadosNovos, observacao) {
+  await supabaseClient.from("logs_alteracoes").insert({
+    gestor_id: perfilLogado.id,
+    colaborador_id: colaboradorId,
+    acao,
+    registro_id: registroId,
+    observacao: observacao || null,
+    dados_anteriores: dadosAnteriores || null,
+    dados_novos: dadosNovos || null,
+  });
+}
+
+const TIPOS_BATIDA_OPCOES = [
+  { value: "ENTRADA",      label: "Entrada" },
+  { value: "SAIDA_ALMOCO", label: "Início do intervalo" },
+  { value: "VOLTA_ALMOCO", label: "Fim do intervalo" },
+  { value: "SAIDA",        label: "Saída" },
+  { value: "ENTRADA_LIVRE",label: "Entrada (MEI/Livre)" },
+  { value: "SAIDA_LIVRE",  label: "Saída (MEI/Livre)" },
+];
+
+async function editarRegistro(id, dataHoraAtual, tipoAtual, colaboradorId) {
+  const { data: hora } = utcParaBRT(dataHoraAtual);
+  const { hora: horaStr } = utcParaBRT(dataHoraAtual);
+  const { data: dataStr } = utcParaBRT(dataHoraAtual);
+
+  const modais = document.getElementById("camada-modais");
+  modais.innerHTML = `
+    <div class="modal-fundo" id="modal-editar-reg-fundo">
+      <div class="card modal-form">
+        <h3>Editar registro de ponto</h3>
+        <div class="stack mt-16">
+          <div>
+            <label class="bsk-label">Data</label>
+            <input type="date" id="er-data" class="input" value="${dataStr}">
+          </div>
+          <div>
+            <label class="bsk-label">Hora</label>
+            <input type="time" id="er-hora" class="input" value="${horaStr}">
+          </div>
+          <div>
+            <label class="bsk-label">Tipo de batida</label>
+            <select id="er-tipo" class="input">
+              ${TIPOS_BATIDA_OPCOES.map(t =>
+                `<option value="${t.value}" ${t.value === tipoAtual ? "selected" : ""}>${t.label}</option>`
+              ).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="bsk-label">Observação (opcional)</label>
+            <textarea id="er-obs" class="input" rows="2" placeholder="Motivo da edição..."></textarea>
+          </div>
+          <p id="er-erro" class="texto-pequeno" style="color:#e57373;"></p>
+          <div class="row mt-8">
+            <button type="button" class="btn btn--secundario flex-1" id="btn-cancelar-er">Cancelar</button>
+            <button type="button" class="btn btn--primario flex-1" id="btn-salvar-er">Salvar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("btn-cancelar-er").addEventListener("click", () => modais.innerHTML = "");
+  document.getElementById("modal-editar-reg-fundo").addEventListener("click", e => {
+    if (e.target.id === "modal-editar-reg-fundo") modais.innerHTML = "";
+  });
+
+  document.getElementById("btn-salvar-er").addEventListener("click", async () => {
+    const novaData = document.getElementById("er-data").value;
+    const novaHora = document.getElementById("er-hora").value;
+    const novoTipo = document.getElementById("er-tipo").value;
+    const obs      = document.getElementById("er-obs").value.trim();
+    const erroEl   = document.getElementById("er-erro");
+
+    if (!novaData || !novaHora) { erroEl.textContent = "Preencha data e hora."; return; }
+
+    const novaDataHora = brtParaUTCIso(novaData, novaHora);
+
+    const { error } = await supabaseClient
+      .from("registros_ponto")
+      .update({ data_hora: novaDataHora, tipo: novoTipo, editado_por: perfilLogado.id })
+      .eq("id", id);
+
+    if (error) { erroEl.textContent = "Erro: " + error.message; return; }
+
+    await inserirLog("EDITAR_REGISTRO", colaboradorId, id,
+      { data_hora: dataHoraAtual, tipo: tipoAtual },
+      { data_hora: novaDataHora,  tipo: novoTipo },
+      obs
+    );
+
+    modais.innerHTML = "";
+    carregarRegistros();
+  });
+}
+
+async function excluirRegistro(id, colaboradorId, dataHoraAtual, tipoAtual) {
+  const obs = prompt("Confirmar exclusão. Observação (opcional):");
+  if (obs === null) return; // cancelou
+
   const { error } = await supabaseClient.from("registros_ponto").delete().eq("id", id);
   if (error) { alert("Erro: " + error.message); return; }
+
+  await inserirLog("EXCLUIR_REGISTRO", colaboradorId, id,
+    { data_hora: dataHoraAtual, tipo: tipoAtual },
+    null,
+    obs || null
+  );
+
   carregarRegistros();
 }

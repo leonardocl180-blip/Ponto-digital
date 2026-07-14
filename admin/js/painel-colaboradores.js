@@ -138,6 +138,17 @@ function abrirModalColaborador(colaborador) {
                 </label>
               `).join("")}
             </div>
+            <label class="bsk-label mt-16">Salário base (R$)</label>
+            <input type="number" id="f-salario-base" class="input" min="0" step="0.01"
+              placeholder="Ex: 1500.00" value="${c.salario_base ?? ""}">
+            <label class="bsk-label mt-16">Hora extra normal (%)</label>
+            <input type="number" id="f-extra-normal" class="input" min="0" max="500"
+              value="${c.percentual_hora_extra_normal ?? 50}">
+            <p class="texto-suave texto-pequeno mt-4">Padrão CLT: 50% — aplicado em dias normais de trabalho.</p>
+            <label class="bsk-label mt-12">Hora extra especial (%)</label>
+            <input type="number" id="f-extra-especial" class="input" min="0" max="500"
+              value="${c.percentual_hora_extra_especial ?? 100}">
+            <p class="texto-suave texto-pequeno mt-4">Padrão CLT: 100% — domingos fora da escala, feriados e folgas trabalhadas.</p>
           </div>
 
           <div id="bloco-campos-mei" class="${c.vinculo === "MEI" ? "campos-mei--visivel" : ""} campos-mei">
@@ -249,6 +260,10 @@ async function salvarColaborador(idExistente) {
     payload.horario_volta_almoco = document.getElementById("f-volta-almoco").value || null;
     payload.horario_saida = document.getElementById("f-saida").value || null;
     payload.dias_trabalho = diasSelecionados;
+    const salBase = document.getElementById("f-salario-base")?.value;
+    payload.salario_base = salBase !== "" && salBase != null ? parseFloat(salBase) : null;
+    payload.percentual_hora_extra_normal   = parseInt(document.getElementById("f-extra-normal")?.value  || "50");
+    payload.percentual_hora_extra_especial = parseInt(document.getElementById("f-extra-especial")?.value || "100");
   } else {
     payload.horario_entrada = null;
     payload.horario_saida_almoco = null;

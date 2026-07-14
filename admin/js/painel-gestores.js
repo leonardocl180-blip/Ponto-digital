@@ -16,7 +16,7 @@ async function carregarGestores() {
     return;
   }
 
-  tbody.innerHTML = data.map(p => `
+  tbody.innerHTML = data.filter(p => p.id !== perfilLogado?.id).map(p => `
     <tr>
       <td>${p.nome}</td>
       <td class="texto-suave texto-pequeno" id="email-${p.id}">—</td>
