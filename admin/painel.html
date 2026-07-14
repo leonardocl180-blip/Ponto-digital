@@ -33,6 +33,8 @@
       <button class="nav-item" data-secao="secao-ausencias">Faltas e folgas</button>
       <button class="nav-item" data-secao="secao-relatorios">Relatórios</button>
       <button class="nav-item" data-secao="secao-gestores" id="nav-gestores" style="display:none;">Gestores</button>
+      <button class="nav-item" data-secao="secao-logs">Logs</button>
+      <button class="nav-item" data-secao="secao-configuracoes" id="nav-configuracoes" style="display:none;">Configurações</button>
     </nav>
 
     <button class="btn btn--secundario btn--bloco" id="btn-sair" style="margin-top:12px;">Sair</button>
@@ -154,6 +156,46 @@
       </div>
     </section>
 
+    <section class="painel-secao" id="secao-logs">
+      <div class="painel-topbar"><h2>Logs de alterações</h2></div>
+      <div class="tabela-wrap">
+        <table class="bsk-tabela">
+          <thead><tr><th>Data/hora</th><th>Gestor</th><th>Colaborador</th><th>Ação</th><th>Observação</th><th></th></tr></thead>
+          <tbody id="tbody-logs">
+            <tr><td colspan="6" class="texto-suave">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="painel-secao" id="secao-configuracoes">
+      <div class="painel-topbar"><h2>Configurações</h2></div>
+      <div class="card" style="max-width:480px;">
+        <h3 class="texto-pequeno texto-suave" style="text-transform:uppercase;letter-spacing:.05em;">Retenção de dados</h3>
+        <div class="stack mt-16">
+          <div>
+            <label class="bsk-label">Manter fotos por (dias)</label>
+            <input type="number" id="cfg-foto-dias" class="input" min="1" value="60">
+            <p class="texto-suave texto-pequeno mt-4">Fotos de batidas mais antigas que este prazo serão removidas do banco.</p>
+          </div>
+          <div>
+            <label class="bsk-label">Manter registros de ponto por (dias)</label>
+            <input type="number" id="cfg-reg-dias" class="input" min="1" value="365">
+            <p class="texto-suave texto-pequeno mt-4">Registros mais antigos que este prazo serão excluídos permanentemente.</p>
+          </div>
+          <div>
+            <label class="bsk-label">Manter logs de alterações por (dias)</label>
+            <input type="number" id="cfg-log-dias" class="input" min="1" value="180">
+          </div>
+          <p id="msg-config" class="texto-pequeno" style="min-height:18px;"></p>
+          <div class="row">
+            <button class="btn btn--primario flex-1" id="btn-salvar-config">Salvar configurações</button>
+            <button class="btn btn--secundario flex-1" id="btn-limpar-agora">Executar limpeza agora</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -170,6 +212,8 @@
 <script src="js/painel-ausencias.js?v=20260704"></script>
 <script src="js/painel-relatorios.js?v=20260704"></script>
 <script src="js/painel-gestores.js?v=20260704"></script>
+<script src="js/painel-logs.js?v=20260704"></script>
+<script src="js/painel-configuracoes.js?v=20260704"></script>
 <script src="js/painel-nav.js?v=20260704"></script>
 </body>
 </html>
