@@ -157,8 +157,9 @@ function diffHorasMinutos(dataHoraInicio, dataHoraFim) {
 function formatarHoras(horasDecimal) {
   const sinal = horasDecimal < 0 ? "-" : "";
   const abs = Math.abs(horasDecimal);
-  const h = Math.floor(abs);
-  const m = Math.round((abs - h) * 60);
+  let h = Math.floor(abs);
+  let m = Math.round((abs - h) * 60);
+  if (m === 60) { h += 1; m = 0; }
   return `${sinal}${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
 }
 
