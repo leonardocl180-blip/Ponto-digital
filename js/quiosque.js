@@ -9,42 +9,11 @@ const elRelogioData = document.getElementById("relogio-data");
 const elModais = document.getElementById("camada-modais");
 
 let colaboradores = [];
-let statusHoje = {};
 let colaboradorSelecionado = null;
 let pinDigitado = "";
 let streamCamera = null;
 let fotoCapturadaDataUrl = null;
 let tipoBatidaEscolhido = null;
-
-// ------------------------------------------------------------
-// face-api.js — carregamento de modelos (lazy, uma única vez)
-// ------------------------------------------------------------
-const FACE_API_MODELS_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.14/model/";
-let faceModelsLoaded = false;
-
-async function carregarModelosFace() {
-  if (faceModelsLoaded || typeof faceapi === "undefined") return;
-  await Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODELS_URL),
-    faceapi.nets.faceLandmark68Net.loadFromUri(FACE_API_MODELS_URL),
-    faceapi.nets.faceRecognitionNet.loadFromUri(FACE_API_MODELS_URL),
-  ]);
-  faceModelsLoaded = true;
-}
-
-async function extrairDescritorRosto(videoOuImg) {
-  await carregarModelosFace();
-  const det = await faceapi
-    .detectSingleFace(videoOuImg, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-    .withFaceLandmarks()
-    .withFaceDescriptor();
-  return det ? Array.from(det.descriptor) : null;
-}
-
-function descritoresConfere(ref, atual, limiar = 0.5) {
-  if (!ref || !atual) return false;
-  return faceapi.euclideanDistance(new Float32Array(ref), new Float32Array(atual)) < limiar;
-}
 
 // ------------------------------------------------------------
 // Relógio em tempo real
@@ -65,7 +34,7 @@ setInterval(atualizarRelogio, 1000 * 15);
 async function carregarColaboradores() {
   const { data, error } = await supabaseClient
     .from("quiosque_colaboradores")
-    .select("id, nome, foto_url, reconhecimento_facial_ativo, descritor_facial")
+    .select("id, nome, foto_url, captcha_ativo")
     .order("nome");
 
   if (error) {
@@ -75,17 +44,6 @@ async function carregarColaboradores() {
   }
 
   colaboradores = data || [];
-
-  // Busca o status de hoje via função RPC segura (a tabela
-  // registros_ponto não é legível por usuários anônimos).
-  const { data: batidasHoje } = await supabaseClient.rpc("status_hoje_todos_colaboradores");
-
-  statusHoje = {};
-  (batidasHoje || []).forEach(b => {
-    if (!statusHoje[b.colaborador_id]) statusHoje[b.colaborador_id] = [];
-    statusHoje[b.colaborador_id].push(b.tipo);
-  });
-
   renderizarGrade(colaboradores);
 }
 
@@ -98,20 +56,14 @@ function renderizarGrade(lista) {
     elGradeColaboradores.innerHTML = `<p class="texto-suave">Nenhum colaborador encontrado.</p>`;
     return;
   }
-  elGradeColaboradores.innerHTML = lista.map(c => {
-    const batidas = statusHoje[c.id] || [];
-    const st = calcularStatus(batidas);
-    return `
+  elGradeColaboradores.innerHTML = lista.map(c => `
     <div class="cartao-colaborador" data-id="${c.id}">
       <div class="cartao-colaborador__avatar">
         ${c.foto_url ? `<img src="${c.foto_url}" alt="${c.nome}">` : iniciais(c.nome)}
       </div>
       <div class="cartao-colaborador__nome">${c.nome}</div>
-      <div class="cartao-colaborador__status" style="color:${st.cor};" title="${st.texto}">
-        ${st.emoji} <span>${st.texto}</span>
-      </div>
     </div>
-  `}).join("");
+  `).join("");
 
   document.querySelectorAll(".cartao-colaborador").forEach(el => {
     el.addEventListener("click", () => {
@@ -121,56 +73,6 @@ function renderizarGrade(lista) {
     });
   });
 }
-
-// ------------------------------------------------------------
-// Atualiza apenas os status (pontos coloridos) nos cartões,
-// sem recriar a grade inteira. Chamado a cada 30 segundos.
-// ------------------------------------------------------------
-async function atualizarStatus() {
-  const { data: batidasHoje } = await supabaseClient.rpc("status_hoje_todos_colaboradores");
-
-  statusHoje = {};
-  (batidasHoje || []).forEach(b => {
-    if (!statusHoje[b.colaborador_id]) statusHoje[b.colaborador_id] = [];
-    statusHoje[b.colaborador_id].push(b.tipo);
-  });
-
-  // Atualiza só os elementos de status já existentes nos cartões
-  // (sem recriar o DOM, para não perder o foco/scroll do usuário)
-  document.querySelectorAll(".cartao-colaborador[data-id]").forEach(cartao => {
-    const id = cartao.getAttribute("data-id");
-    const batidas = statusHoje[id] || [];
-    const st = calcularStatus(batidas);
-    const elStatus = cartao.querySelector(".cartao-colaborador__status");
-    if (elStatus) {
-      elStatus.style.color = st.cor;
-      elStatus.title = st.texto;
-      elStatus.innerHTML = `${st.emoji} <span>${st.texto}</span>`;
-    }
-  });
-}
-
-// ------------------------------------------------------------
-// Atualização em tempo real via Supabase Realtime
-// ------------------------------------------------------------
-function iniciarRealtimeStatus() {
-  supabaseClient
-    .channel("registros-ponto-hoje")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "registros_ponto" },
-      () => { atualizarStatus(); }
-    )
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        console.log("Realtime: monitorando batidas de ponto.");
-      }
-    });
-}
-
-// Fallback: se o Realtime falhar por qualquer razão (rede, RLS, etc),
-// o setInterval garante que o status apareça no máximo em 30 segundos
-setInterval(atualizarStatus, 30 * 1000);
 
 elBuscaInput.addEventListener("input", () => {
   const termo = elBuscaInput.value.trim().toLowerCase();
@@ -254,7 +156,125 @@ async function validarPin() {
   }
 
   fecharModais();
-  abrirEscolhaBatida();
+  // Se CAPTCHA estiver ativo para este colaborador, verifica antes de prosseguir
+  if (colaboradorSelecionado.captcha_ativo) {
+    await mostrarCaptcha();
+  } else {
+    abrirEscolhaBatida();
+  }
+}
+
+// ------------------------------------------------------------
+// CAPTCHA visual — grade de imagens, selecionar todas de uma categoria
+// ------------------------------------------------------------
+
+// Categorias disponíveis: [alvo, emoji, nome para exibição]
+const CAPTCHA_CATEGORIAS = [
+  { emoji: "🍍", nome: "abacaxis"    , distracao: ["🍎","🍊","🍌","🍇","🍓","🍉","🍋","🥭","🍑","🥥","🍒","🫐"] },
+  { emoji: "🍓", nome: "morangos"   , distracao: ["🍎","🍊","🍌","🍍","🍇","🍉","🍋","🥭","🍑","🥥","🍒","🫐"] },
+  { emoji: "🍕", nome: "pizzas"     , distracao: ["🍔","🌮","🌯","🥗","🥘","🍜","🍝","🍣","🍦","🧁","🍩","🥐"] },
+  { emoji: "🐶", nome: "cachorros"  , distracao: ["🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐸","🐮"] },
+  { emoji: "⭐", nome: "estrelas"   , distracao: ["❤️","🔵","🟡","🔴","🟢","🟣","🟠","⚪","🔶","🔷","🔸","🔹"] },
+  { emoji: "🚗", nome: "carros"     , distracao: ["✈️","🚢","🚂","🏍","🚲","🛵","🚌","🚁","🛶","🚀","🛸","⛵"] },
+  { emoji: "🌸", nome: "flores"     , distracao: ["🌿","🍀","🌵","🌾","🍁","🌴","🌲","🪴","☘️","🌱","🍂","🪻"] },
+];
+
+function gerarGradeCaptcha() {
+  const cat = CAPTCHA_CATEGORIAS[Math.floor(Math.random() * CAPTCHA_CATEGORIAS.length)];
+  const totalCells = 9; // grade 3×3
+  const qtdAlvo = Math.floor(Math.random() * 2) + 2; // 2 ou 3 alvos
+  const qtdDistrac = totalCells - qtdAlvo;
+
+  // Embaralha distratores e pega os necessários
+  const distrac = [...cat.distracao].sort(() => Math.random() - 0.5).slice(0, qtdDistrac);
+
+  // Monta a grade e embaralha
+  const celulas = [
+    ...Array(qtdAlvo).fill(cat.emoji),
+    ...distrac,
+  ].sort(() => Math.random() - 0.5);
+
+  return { categoria: cat, celulas, indicesCorretos: celulas.reduce((acc, e, i) => { if (e === cat.emoji) acc.push(i); return acc; }, []) };
+}
+
+async function mostrarCaptcha() {
+  return new Promise((resolve) => {
+    let grade = gerarGradeCaptcha();
+    let selecionados = new Set();
+
+    function renderGrade() {
+      elModais.innerHTML = `
+        <div class="modal-fundo" id="modal-captcha-fundo">
+          <div class="modal-pin" style="max-width:340px;">
+            <h3 style="font-size:15px;">Verificação de segurança</h3>
+            <p class="texto-suave texto-pequeno mt-6" style="text-align:center;">
+              Toque em todas as imagens com<br>
+              <strong style="color:var(--bsk-amarelo);font-size:22px;">${grade.categoria.emoji} ${grade.categoria.nome}</strong>
+            </p>
+            <div id="grade-captcha" style="
+              display:grid;grid-template-columns:repeat(3,1fr);
+              gap:8px;margin:16px 0;">
+              ${grade.celulas.map((emoji, i) => `
+                <div data-idx="${i}" class="captcha-tile" style="
+                  font-size:36px;text-align:center;padding:12px 0;
+                  border-radius:10px;cursor:pointer;border:3px solid transparent;
+                  background:var(--bsk-cinza-card);
+                  transition:border-color .15s,background .15s;
+                  user-select:none;">
+                  ${emoji}
+                </div>
+              `).join("")}
+            </div>
+            <p id="captcha-erro" style="color:#e57373;text-align:center;font-size:13px;min-height:18px;"></p>
+            <button class="btn btn--primario btn--bloco mt-8" id="btn-confirmar-captcha">Confirmar</button>
+            <button class="btn btn--ghost mt-8" id="btn-cancelar-captcha">Cancelar</button>
+          </div>
+        </div>
+      `;
+
+      // Liga os eventos dos tiles
+      document.querySelectorAll(".captcha-tile").forEach(tile => {
+        const idx = parseInt(tile.getAttribute("data-idx"));
+        if (selecionados.has(idx)) {
+          tile.style.borderColor = "var(--bsk-amarelo)";
+          tile.style.background  = "rgba(245,197,24,0.15)";
+        }
+        tile.addEventListener("click", () => {
+          if (selecionados.has(idx)) { selecionados.delete(idx); }
+          else { selecionados.add(idx); }
+          // Atualiza visual do tile clicado sem re-renderizar tudo
+          const sel = selecionados.has(idx);
+          tile.style.borderColor = sel ? "var(--bsk-amarelo)" : "transparent";
+          tile.style.background  = sel ? "rgba(245,197,24,0.15)" : "var(--bsk-cinza-card)";
+          document.getElementById("captcha-erro").textContent = "";
+        });
+      });
+
+      document.getElementById("btn-confirmar-captcha").addEventListener("click", confirmar);
+      document.getElementById("btn-cancelar-captcha").addEventListener("click", () => {
+        fecharModais(); resolve();
+      });
+    }
+
+    function confirmar() {
+      const corretos   = new Set(grade.indicesCorretos);
+      const acertouTodos = [...corretos].every(i => selecionados.has(i));
+      const semErro      = [...selecionados].every(i => corretos.has(i));
+
+      if (acertouTodos && semErro) {
+        fecharModais(); resolve(); abrirEscolhaBatida();
+      } else {
+        // Regenera grade para forçar nova tentativa
+        selecionados = new Set();
+        grade = gerarGradeCaptcha();
+        renderGrade();
+        document.getElementById("captcha-erro").textContent =
+          "Seleção incorreta. Tente novamente com as novas imagens.";
+      }
+    }
+
+    renderGrade();
+  });
 }
 
 function fecharModais() {
@@ -279,93 +299,24 @@ async function abrirEscolhaBatida() {
   if (!error && data) tipoRegistro = data;
 
   if (tipoRegistro === "LIVRE") {
-    await mostrarOpcoesLivre();
+    mostrarOpcoesLivre();
   } else {
-    await mostrarOpcoesSimples();
+    mostrarOpcoesSimples();
   }
 }
 
-const ORDEM_BATIDAS_SIMPLES = ["ENTRADA", "SAIDA_ALMOCO", "VOLTA_ALMOCO", "SAIDA"];
-const LABELS_BATIDAS_SIMPLES = {
-  ENTRADA: "Entrada",
-  SAIDA_ALMOCO: "Início do intervalo",
-  VOLTA_ALMOCO: "Fim do intervalo",
-  SAIDA: "Saída",
-  ENTRADA_LIVRE: "Entrada",
-  SAIDA_LIVRE: "Saída"
-};
-
-// Status derivado das batidas já feitas hoje
-function calcularStatus(jaFeitas) {
-  if (jaFeitas.includes("SAIDA") || jaFeitas.includes("SAIDA_LIVRE"))
-    return { texto: "Fora do trabalho", cor: "#888",    emoji: "🔴" };
-  if (jaFeitas.includes("VOLTA_ALMOCO"))
-    return { texto: "Trabalhando",      cor: "#4caf50", emoji: "🟢" };
-  if (jaFeitas.includes("SAIDA_ALMOCO"))
-    return { texto: "Em intervalo",     cor: "#ff9800", emoji: "🟡" };
-  if (jaFeitas.includes("ENTRADA") || jaFeitas.includes("ENTRADA_LIVRE"))
-    return { texto: "Trabalhando",      cor: "#4caf50", emoji: "🟢" };
-  return { texto: "Não entrou ainda",   cor: "#888",    emoji: "⚪" };
-}
-
-// Detecta automaticamente o próximo tipo de batida
-function detectarProximoBatida(jaFeitas, modoLivre) {
-  if (modoLivre) {
-    // MEI: alterna entrada/saída. Se o último foi entrada → próxima é saída
-    const ultimaLivre = [...jaFeitas].reverse().find(t => t === "ENTRADA_LIVRE" || t === "SAIDA_LIVRE");
-    return ultimaLivre === "ENTRADA_LIVRE" ? "SAIDA_LIVRE" : "ENTRADA_LIVRE";
-  }
-  return ORDEM_BATIDAS_SIMPLES.find(t => !jaFeitas.includes(t)) || null;
-}
-
-async function mostrarConfirmacaoBatida(modoLivre) {
-  const { data: jaFeitasData } = await supabaseClient.rpc("batidas_hoje_colaborador", {
-    p_colaborador_id: colaboradorSelecionado.id
-  });
-  const jaFeitas = Array.isArray(jaFeitasData) ? jaFeitasData : [];
-  const proximaTipo = detectarProximoBatida(jaFeitas, modoLivre);
-  const status = calcularStatus(jaFeitas);
-  const labelProxima = proximaTipo ? LABELS_BATIDAS_SIMPLES[proximaTipo] : null;
-
+function mostrarOpcoesSimples() {
   elModais.innerHTML = `
     <div class="modal-fundo" id="modal-opcoes-fundo">
       <div class="modal-pin">
         <h3>${colaboradorSelecionado.nome}</h3>
-        <p style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:6px;">
-          <span>${status.emoji}</span>
-          <span style="color:${status.cor};font-weight:600;font-size:14px;">${status.texto}</span>
-        </p>
-
-        ${labelProxima ? `
-          <div style="margin:20px 0 8px;text-align:center;">
-            <p class="texto-suave texto-pequeno">Registrar agora:</p>
-            <p style="font-size:20px;font-weight:700;color:var(--bsk-amarelo);margin-top:4px;">${labelProxima}</p>
-          </div>
-          <button class="btn btn--primario btn--bloco" id="btn-confirmar-batida" data-tipo="${proximaTipo}">
-            ✓ Confirmar
-          </button>
-          <details style="margin-top:12px;text-align:center;">
-            <summary class="texto-suave texto-pequeno" style="cursor:pointer;list-style:none;">Registrar outro tipo</summary>
-            <div class="stack mt-12">
-              ${(modoLivre
-                ? ["ENTRADA_LIVRE","SAIDA_LIVRE"]
-                : ORDEM_BATIDAS_SIMPLES
-              ).filter(t => t !== proximaTipo).map(tipo => `
-                <button class="btn btn--secundario btn--bloco" data-tipo="${tipo}">${LABELS_BATIDAS_SIMPLES[tipo]}</button>
-              `).join("")}
-            </div>
-          </details>
-        ` : `
-          <p class="texto-suave texto-pequeno mt-16" style="text-align:center;">
-            Todos os registros de hoje já foram feitos.<br>Se precisar corrigir, escolha abaixo:
-          </p>
-          <div class="stack mt-12">
-            ${(modoLivre ? ["ENTRADA_LIVRE","SAIDA_LIVRE"] : ORDEM_BATIDAS_SIMPLES)
-              .map(tipo => `<button class="btn btn--secundario btn--bloco" data-tipo="${tipo}">${LABELS_BATIDAS_SIMPLES[tipo]}</button>`)
-              .join("")}
-          </div>
-        `}
-
+        <p class="texto-suave texto-pequeno mt-8">Qual registro deseja fazer?</p>
+        <div class="stack mt-16">
+          <button class="btn btn--primario btn--bloco" data-tipo="ENTRADA">Entrada</button>
+          <button class="btn btn--secundario btn--bloco" data-tipo="SAIDA_ALMOCO">Saída para almoço</button>
+          <button class="btn btn--secundario btn--bloco" data-tipo="VOLTA_ALMOCO">Volta do almoço</button>
+          <button class="btn btn--secundario btn--bloco" data-tipo="SAIDA">Saída final</button>
+        </div>
         <button class="btn btn--ghost mt-16" id="btn-cancelar-opcoes">Cancelar</button>
       </div>
     </div>
@@ -373,9 +324,22 @@ async function mostrarConfirmacaoBatida(modoLivre) {
   ligarBotoesOpcoes();
 }
 
-// Mantido por compatibilidade — agora ambos usam a função unificada
-async function mostrarOpcoesSimples() { await mostrarConfirmacaoBatida(false); }
-async function mostrarOpcoesLivre()   { await mostrarConfirmacaoBatida(true);  }
+function mostrarOpcoesLivre() {
+  elModais.innerHTML = `
+    <div class="modal-fundo" id="modal-opcoes-fundo">
+      <div class="modal-pin">
+        <h3>${colaboradorSelecionado.nome}</h3>
+        <p class="texto-suave texto-pequeno mt-8">Registrar entrada ou saída?</p>
+        <div class="opcoes-batida mt-16">
+          <button class="btn btn--primario" data-tipo="ENTRADA_LIVRE">Entrada</button>
+          <button class="btn btn--secundario" data-tipo="SAIDA_LIVRE">Saída</button>
+        </div>
+        <button class="btn btn--ghost mt-16" id="btn-cancelar-opcoes">Cancelar</button>
+      </div>
+    </div>
+  `;
+  ligarBotoesOpcoes();
+}
 
 function ligarBotoesOpcoes() {
   document.querySelectorAll("[data-tipo]").forEach(btn => {
@@ -391,130 +355,32 @@ function ligarBotoesOpcoes() {
 // Captura de foto
 // ------------------------------------------------------------
 async function abrirCamera() {
-  const precisaReconhecimento =
-    colaboradorSelecionado?.reconhecimento_facial_ativo &&
-    colaboradorSelecionado?.descritor_facial;
-
   elModais.innerHTML = `
     <div class="modal-fundo" id="modal-camera-fundo">
       <div class="modal-pin" style="max-width:420px;">
-        <h3>${precisaReconhecimento ? "🔐 Verificação facial" : "Sorria! 📸"}</h3>
-        <p class="texto-suave texto-pequeno mt-8">
-          ${precisaReconhecimento
-            ? "Posicione seu rosto para confirmar a identidade"
-            : "Confirme sua identidade para registrar o ponto"}
-        </p>
-        <div class="camera-wrap mt-16" style="position:relative;">
-          <video id="video-camera" autoplay playsinline
-            style="transform:scaleX(-1);width:100%;border-radius:var(--raio-medio);display:block;"></video>
-          <div id="face-overlay" style="
-            position:absolute;inset:0;border-radius:var(--raio-medio);
-            border:4px solid transparent;transition:border-color 0.25s;pointer-events:none;"></div>
+        <h3>Sorria! 📸</h3>
+        <p class="texto-suave texto-pequeno mt-8">Confirme sua identidade para registrar o ponto</p>
+        <div class="camera-wrap mt-16">
+          <video id="video-camera" autoplay playsinline></video>
         </div>
-        <div id="camera-status" class="texto-pequeno mt-8"
-          style="text-align:center;font-weight:600;min-height:20px;"></div>
         <div class="stack mt-16">
-          <button class="btn btn--primario btn--bloco" id="btn-tirar-foto"
-            disabled style="opacity:0.5;cursor:not-allowed;">
-            ${precisaReconhecimento ? "Aguardando verificação..." : "Aguardando rosto..."}
-          </button>
+          <button class="btn btn--primario btn--bloco" id="btn-tirar-foto">Tirar foto e registrar</button>
           <button class="btn btn--ghost" id="btn-cancelar-camera">Cancelar</button>
         </div>
       </div>
     </div>
   `;
 
-  document.getElementById("btn-cancelar-camera").addEventListener("click", () => {
-    pararCamera(); fecharModais();
-  });
+  document.getElementById("btn-cancelar-camera").addEventListener("click", fecharModais);
   document.getElementById("btn-tirar-foto").addEventListener("click", tirarFotoERegistrar);
-
-  let faceInterval = null;
-
-  function habilitarBotao(label) {
-    const btn = document.getElementById("btn-tirar-foto");
-    if (!btn) return;
-    btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
-    btn.textContent = label || "Tirar foto e registrar";
-  }
-  function desabilitarBotao(label) {
-    const btn = document.getElementById("btn-tirar-foto");
-    if (!btn) return;
-    btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed";
-    btn.textContent = label || "Aguardando rosto...";
-  }
-
-  async function iniciarDeteccao(video) {
-    if (typeof faceapi === "undefined") { habilitarBotao(); return; }
-    try { await carregarModelosFace(); } catch { habilitarBotao(); return; }
-
-    const overlay = document.getElementById("face-overlay");
-    const status  = document.getElementById("camera-status");
-
-    faceInterval = setInterval(async () => {
-      if (!document.getElementById("video-camera")) { clearInterval(faceInterval); return; }
-      try {
-        const det = await faceapi
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-
-        if (!det) {
-          overlay.style.borderColor = "#e57373";
-          status.style.color = "#e57373";
-          status.textContent = "Posicione seu rosto no centro";
-          desabilitarBotao(precisaReconhecimento ? "Aguardando verificação..." : "Aguardando rosto...");
-          return;
-        }
-
-        const descriptorAtual = Array.from(det.descriptor);
-
-        if (precisaReconhecimento) {
-          const confere = descritoresConfere(
-            colaboradorSelecionado.descritor_facial,
-            descriptorAtual
-          );
-          if (confere) {
-            overlay.style.borderColor = "#4caf50";
-            status.style.color = "#4caf50";
-            status.textContent = "✓ Identidade confirmada";
-            habilitarBotao("Registrar ponto");
-          } else {
-            overlay.style.borderColor = "#e57373";
-            status.style.color = "#e57373";
-            status.textContent = "✗ Rosto não reconhecido";
-            desabilitarBotao("Aguardando verificação...");
-          }
-        } else {
-          overlay.style.borderColor = "#4caf50";
-          status.style.color = "#4caf50";
-          status.textContent = "✓ Rosto detectado";
-          habilitarBotao("Tirar foto e registrar");
-        }
-      } catch (_) { habilitarBotao(); }
-    }, 400);
-  }
-
-  window._pararCameraComDeteccao = () => {
-    if (faceInterval) { clearInterval(faceInterval); faceInterval = null; }
-    pararCamera();
-  };
 
   try {
     streamCamera = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-    const video = document.getElementById("video-camera");
-    video.srcObject = streamCamera;
-    video.addEventListener("playing", () => iniciarDeteccao(video), { once: true });
+    document.getElementById("video-camera").srcObject = streamCamera;
   } catch (e) {
-    console.error("Câmera indisponível:", e);
-    const statusEl = document.getElementById("camera-status");
-    if (statusEl) { statusEl.textContent = "Câmera indisponível."; statusEl.style.color = "#e57373"; }
-    const btn = document.getElementById("btn-tirar-foto");
-    if (btn) {
-      btn.textContent = "Registrar sem foto"; btn.disabled = false;
-      btn.style.opacity = "1"; btn.style.cursor = "pointer";
-      btn.onclick = async () => { await registrarEFinalizar(null); };
-    }
+    console.error("Erro ao acessar câmera:", e);
+    // Sem câmera disponível: segue sem foto
+    await registrarEFinalizar(null);
   }
 }
 
@@ -528,17 +394,13 @@ function pararCamera() {
 async function tirarFotoERegistrar() {
   const video = document.getElementById("video-camera");
   const canvas = document.createElement("canvas");
-  canvas.width  = video.videoWidth  || 480;
+  canvas.width = video.videoWidth || 480;
   canvas.height = video.videoHeight || 360;
   const ctx = canvas.getContext("2d");
-  // Espelha o canvas para corresponder ao que o usuário viu na câmera
-  ctx.translate(canvas.width, 0);
-  ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   fotoCapturadaDataUrl = canvas.toDataURL("image/jpeg", 0.7);
 
-  if (window._pararCameraComDeteccao) window._pararCameraComDeteccao();
-  else pararCamera();
+  pararCamera();
   await registrarEFinalizar(fotoCapturadaDataUrl);
 }
 
@@ -591,8 +453,8 @@ function mostrarTelaCarregando() {
 
 function mostrarConfirmacao(offline) {
   const nomeBatida = {
-    ENTRADA: "Entrada", SAIDA_ALMOCO: "Início do intervalo",
-    VOLTA_ALMOCO: "Fim do intervalo", SAIDA: "Saída",
+    ENTRADA: "Entrada", SAIDA_ALMOCO: "Saída para almoço",
+    VOLTA_ALMOCO: "Volta do almoço", SAIDA: "Saída",
     ENTRADA_LIVRE: "Entrada", SAIDA_LIVRE: "Saída"
   }[tipoBatidaEscolhido] || "Ponto";
 
@@ -611,10 +473,6 @@ function mostrarConfirmacao(offline) {
   `;
   document.getElementById("btn-fechar-confirmacao").addEventListener("click", fecharModais);
 
-  // Atualiza os status dos cartões imediatamente após a batida,
-  // sem esperar o intervalo de 30 segundos
-  atualizarStatus();
-
   setTimeout(() => {
     if (document.getElementById("btn-fechar-confirmacao")) fecharModais();
   }, 4000);
@@ -631,4 +489,3 @@ document.addEventListener("bsk:sincronizado", (e) => {
 // Init
 // ------------------------------------------------------------
 carregarColaboradores();
-iniciarRealtimeStatus();
