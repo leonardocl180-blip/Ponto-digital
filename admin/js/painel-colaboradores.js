@@ -171,6 +171,17 @@ function abrirModalColaborador(colaborador) {
               </span>
             </label>
           </div>
+
+          <div style="display:flex;align-items:center;gap:12px;margin-top:12px;">
+            <label class="bsk-label" style="margin:0;flex:1;">CAPTCHA na batida de ponto</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="f-captcha" ${c.captcha_ativo ? "checked" : ""}>
+              <span class="texto-pequeno texto-suave" id="label-captcha">
+                ${c.captcha_ativo ? "Ativado" : "Desativado"}
+              </span>
+            </label>
+          </div>
+          <p class="texto-suave texto-pequeno mt-4">Exige resolver um cálculo simples antes de registrar o ponto.</p>
           ${ehEdicao && c.reconhecimento_facial_ativo !== undefined ? `
           <button type="button" class="btn btn--secundario btn--bloco mt-8" id="btn-cadastrar-rosto">
             📷 ${c.descritor_facial ? "Atualizar rosto de referência" : "Cadastrar rosto de referência"}
@@ -219,6 +230,11 @@ function abrirModalColaborador(colaborador) {
     if (label) label.textContent = this.checked ? "Ativado" : "Desativado";
   });
 
+  document.getElementById("f-captcha")?.addEventListener("change", function () {
+    const label = document.getElementById("label-captcha");
+    if (label) label.textContent = this.checked ? "Ativado" : "Desativado";
+  });
+
   // Cadastrar rosto de referência
   document.getElementById("btn-cadastrar-rosto")?.addEventListener("click", () => {
     abrirCameraReferencia(c.id, () => {
@@ -245,6 +261,7 @@ async function salvarColaborador(idExistente) {
     .map(cb => parseInt(cb.value, 10));
 
   const reconhecimentoEl = document.getElementById("f-reconhecimento");
+  const captchaEl = document.getElementById("f-captcha");
   const payload = {
     nome: document.getElementById("f-nome").value.trim(),
     cargo: document.getElementById("f-cargo").value.trim() || null,
@@ -252,6 +269,7 @@ async function salvarColaborador(idExistente) {
     vinculo,
     tipo_registro: document.getElementById("f-tipo-registro").value,
     reconhecimento_facial_ativo: reconhecimentoEl ? reconhecimentoEl.checked : false,
+    captcha_ativo: captchaEl ? captchaEl.checked : false,
   };
 
   if (vinculo === "CLT") {
