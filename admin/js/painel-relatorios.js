@@ -35,13 +35,32 @@ async function atualizarOpcoesPeriodo() {
         <select id="periodo-mei" class="input">
           <option value="SEMANAL">Semanal (seg. a dom.)</option>
           <option value="QUINZENAL" selected>Quinzenal</option>
+          <option value="MENSAL">Mensal</option>
         </select>
       </div>
-      <div class="flex-1">
+      <div class="flex-1" id="bloco-ref-mei">
         <label class="bsk-label">Data de referência</label>
         <input type="date" id="data-referencia-mei" class="input" value="${new Date().toISOString().slice(0,10)}">
       </div>
     `;
+
+    // Alterna entre date picker e month picker conforme o período
+    document.getElementById("periodo-mei").addEventListener("change", function () {
+      const bloco = document.getElementById("bloco-ref-mei");
+      const hoje = new Date();
+      if (this.value === "MENSAL") {
+        bloco.innerHTML = `
+          <label class="bsk-label">Mês de referência</label>
+          <input type="month" id="mes-referencia-mei" class="input"
+            value="${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,"0")}">
+        `;
+      } else {
+        bloco.innerHTML = `
+          <label class="bsk-label">Data de referência</label>
+          <input type="date" id="data-referencia-mei" class="input" value="${hoje.toISOString().slice(0,10)}">
+        `;
+      }
+    });
 
     // Usa o período já configurado para este colaborador (aba Colaboradores),
     // em vez de sempre cair no padrão "Quinzenal".
@@ -62,6 +81,11 @@ async function atualizarOpcoesPeriodo() {
 // Calcula início/fim do período MEI (semanal seg-dom, ou quinzenal)
 // ------------------------------------------------------------
 function calcularPeriodoMei(dataRefStr, periodo) {
+  if (periodo === "MENSAL") {
+    const [ano, mes] = dataRefStr.split("-").map(Number);
+    return { inicio: new Date(ano, mes - 1, 1), fim: new Date(ano, mes, 0) };
+  }
+
   const dataRef = new Date(dataRefStr + "T00:00:00");
   const diaSemana = dataRef.getDay(); // 0=domingo
 
@@ -402,48 +426,69 @@ async function gerarPdfClt(colaborador, anoMes) {
     theme: "plain",
     styles: { fontSize: 7.5, textColor: 0, lineColor: 0, lineWidth: 0.1 },
     headStyles: { fontStyle: "bold", lineWidth: 0.2 },
+    columnStyles: {
+      0: { cellWidth: 22 },
+      1: { cellWidth: 18 },
+      2: { cellWidth: 23 },
+      3: { cellWidth: 23 },
+      4: { cellWidth: 18 },
+      5: { cellWidth: 18 },
+      6: { cellWidth: 22 },
+      7: { cellWidth: "auto" },
+    },
     tableLineColor: 0,
     tableLineWidth: 0.1,
   });
 
-  let yFinal = doc.lastAutoTable.finalY + 8;
+  // Totais em duas colunas para evitar sobreposição
+  const xL = 14;   // coluna esquerda — horas
+  const xR = 108;  // coluna direita  — salário
+  let yL = doc.lastAutoTable.finalY + 8;
+  let yR = yL;
   doc.setFontSize(9);
-  doc.setFont("helvetica", "bold");
-  doc.text("Totais do período", 14, yFinal); yFinal += 6;
-  doc.setFont("helvetica", "normal");
-  doc.text(`Horas trabalhadas: ${formatarHoras(totalHoras)}`, 14, yFinal); yFinal += 5;
-  doc.text(`Saldo de horas extras/atrasos: ${formatarHoras(totalExtra)}`, 14, yFinal); yFinal += 5;
-  doc.text(`H.E. normais (${pctNormal}%): ${formatarHoras(horasExtraNormais)}`, 14, yFinal); yFinal += 5;
-  doc.text(`H.E. especiais (${pctEspecial}%): ${formatarHoras(horasExtraEspeciais)}`, 14, yFinal); yFinal += 5;
-  doc.text(`Faltas: ${totalFaltas}`, 14, yFinal); yFinal += 5;
 
+  // ---- Coluna esquerda: horas ----
+  doc.setFont("helvetica", "bold");
+  doc.text("Totais do período", xL, yL); yL += 6;
+  doc.setFont("helvetica", "normal");
+  doc.text(`Horas trabalhadas: ${formatarHoras(totalHoras)}`, xL, yL); yL += 5;
+  doc.text(`Saldo extras/atrasos: ${formatarHoras(totalExtra)}`, xL, yL); yL += 5;
+  doc.text(`H.E. normais (${pctNormal}%): ${formatarHoras(horasExtraNormais)}`, xL, yL); yL += 5;
+  doc.text(`H.E. especiais (${pctEspecial}%): ${formatarHoras(horasExtraEspeciais)}`, xL, yL); yL += 5;
+  doc.text(`Faltas: ${totalFaltas}`, xL, yL); yL += 5;
+
+  // ---- Coluna direita: salário (só se salário base estiver preenchido) ----
   if (colaborador.salario_base) {
     const diasUteisNoMes = dias.filter(d => {
       const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
       return (colaborador.dias_trabalho || [1,2,3,4,5]).includes(d.getDay()) && !feriados.has(ds);
     }).length;
-    const horasMensais     = (diasUteisNoMes * jornadaEsperada) || 220;
-    const valorHora        = colaborador.salario_base / horasMensais;
+    const horasMensais       = (diasUteisNoMes * jornadaEsperada) || 220;
+    const valorHora          = colaborador.salario_base / horasMensais;
     const valorExtraNormal   = horasExtraNormais   * valorHora * (pctNormal   / 100);
     const valorExtraEspecial = horasExtraEspeciais * valorHora * (pctEspecial / 100);
-    const totalSalario     = colaborador.salario_base + valorExtraNormal + valorExtraEspecial;
+    const totalSalario       = colaborador.salario_base + valorExtraNormal + valorExtraEspecial;
     const brl = v => `R$ ${v.toFixed(2).replace(".", ",")}`;
 
-    yFinal += 2;
+    // Linha separadora vertical
+    doc.setDrawColor(180);
+    doc.setLineWidth(0.2);
+    doc.line(xR - 4, yR - 2, xR - 4, Math.max(yL, yR) + 20);
+    doc.setDrawColor(0);
+
     doc.setFont("helvetica", "bold");
-    doc.text("Cálculo salarial", 14, yFinal); yFinal += 6;
+    doc.text("Cálculo salarial", xR, yR); yR += 6;
     doc.setFont("helvetica", "normal");
-    doc.text(`Salário base: ${brl(colaborador.salario_base)}`, 14, yFinal); yFinal += 5;
-    doc.text(`Valor/hora: ${brl(valorHora)} (${horasMensais.toFixed(0)}h/mês)`, 14, yFinal); yFinal += 5;
-    doc.text(`H.E. normais (${formatarHoras(horasExtraNormais)} × ${pctNormal}%): ${brl(valorExtraNormal)}`, 14, yFinal); yFinal += 5;
-    doc.text(`H.E. especiais (${formatarHoras(horasExtraEspeciais)} × ${pctEspecial}%): ${brl(valorExtraEspecial)}`, 14, yFinal); yFinal += 5;
+    doc.text(`Salário base: ${brl(colaborador.salario_base)}`, xR, yR); yR += 5;
+    doc.text(`Valor/hora: ${brl(valorHora)} (${horasMensais.toFixed(0)}h/mês)`, xR, yR); yR += 5;
+    doc.text(`H.E. normais ${formatarHoras(horasExtraNormais)} × ${pctNormal}%: ${brl(valorExtraNormal)}`, xR, yR); yR += 5;
+    doc.text(`H.E. especiais ${formatarHoras(horasExtraEspeciais)} × ${pctEspecial}%: ${brl(valorExtraEspecial)}`, xR, yR); yR += 5;
     doc.setFont("helvetica", "bold");
-    doc.text(`Total a receber: ${brl(totalSalario)}`, 14, yFinal); yFinal += 5;
+    doc.text(`Total a receber: ${brl(totalSalario)}`, xR, yR); yR += 5;
     doc.setFont("helvetica", "normal");
   }
 
-  desenharRodapeAssinatura(doc, yFinal);
-
+  desenharRodapeAssinatura(doc, Math.max(yL, yR));
   doc.save(`folha-ponto-${colaborador.nome.replace(/\s+/g,"-")}-${anoMes}.pdf`);
 }
 
@@ -556,7 +601,9 @@ async function gerarPdfMei(colaborador, periodo, dataRefStr) {
   }
 
   const doc = new jsPDF();
-  const periodoTexto = `${formatarDataBR(inicio)} a ${formatarDataBR(fim)} (${periodo === "SEMANAL" ? "semanal" : "quinzenal"})`;
+  const periodoTexto = periodo === "MENSAL"
+    ? inicio.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+    : `${formatarDataBR(inicio)} a ${formatarDataBR(fim)} (${periodo === "SEMANAL" ? "semanal" : "quinzenal"})`;
   let y = desenharCabecalho(doc, "Relatório de horas — MEI", colaborador, periodoTexto);
 
   doc.autoTable({
@@ -609,8 +656,15 @@ document.getElementById("btn-gerar-pdf-individual").addEventListener("click", as
     await gerarPdfClt(colaborador, anoMes);
   } else {
     const periodo = document.getElementById("periodo-mei").value;
-    const dataRef = document.getElementById("data-referencia-mei").value;
-    if (!dataRef) { alert("Selecione a data de referência."); return; }
+    let dataRef;
+    if (periodo === "MENSAL") {
+      const anoMes = document.getElementById("mes-referencia-mei")?.value;
+      if (!anoMes) { alert("Selecione o mês."); return; }
+      dataRef = anoMes + "-01"; // primeiro dia do mês como referência
+    } else {
+      dataRef = document.getElementById("data-referencia-mei")?.value;
+      if (!dataRef) { alert("Selecione a data de referência."); return; }
+    }
     await gerarPdfMei(colaborador, periodo, dataRef);
   }
 });
