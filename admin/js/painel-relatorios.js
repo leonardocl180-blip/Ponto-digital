@@ -440,11 +440,20 @@ async function gerarPdfClt(colaborador, anoMes) {
     tableLineWidth: 0.1,
   });
 
-  // Totais em duas colunas para evitar sobreposição
+  // Totais em duas colunas para evitar sobreposição.
+  // Se a tabela ocupou quase a página inteira, abre nova página
+  // antes de escrever os totais (evita sobreposição com a assinatura).
+  const ESPACO_TOTAIS = colaborador.salario_base ? 75 : 50; // mm necessários
+  let yBase = doc.lastAutoTable.finalY + 8;
+  if (yBase + ESPACO_TOTAIS > 272) {
+    doc.addPage();
+    yBase = 15;
+  }
+
   const xL = 14;   // coluna esquerda — horas
   const xR = 108;  // coluna direita  — salário
-  let yL = doc.lastAutoTable.finalY + 8;
-  let yR = yL;
+  let yL = yBase;
+  let yR = yBase;
   doc.setFontSize(9);
 
   // ---- Coluna esquerda: horas ----
@@ -470,10 +479,11 @@ async function gerarPdfClt(colaborador, anoMes) {
     const totalSalario       = colaborador.salario_base + valorExtraNormal + valorExtraEspecial;
     const brl = v => `R$ ${v.toFixed(2).replace(".", ",")}`;
 
-    // Linha separadora vertical
+    // Linha separadora vertical — limitada à área de conteúdo da página
+    const yLinhaFim = Math.min(Math.max(yL, yBase + 40), 270);
     doc.setDrawColor(180);
     doc.setLineWidth(0.2);
-    doc.line(xR - 4, yR - 2, xR - 4, Math.max(yL, yR) + 20);
+    doc.line(xR - 4, yBase - 2, xR - 4, yLinhaFim);
     doc.setDrawColor(0);
 
     doc.setFont("helvetica", "bold");
