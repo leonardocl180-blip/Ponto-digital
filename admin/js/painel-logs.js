@@ -15,7 +15,7 @@ async function carregarLogs() {
 
   const { data, error } = await supabaseClient
     .from("logs_alteracoes")
-    .select("*, perfis(nome), colaboradores(nome)")
+    .select("*, perfis(nome, tipo), colaboradores(nome)")
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -24,12 +24,15 @@ async function carregarLogs() {
     return;
   }
 
-  if (!data || data.length === 0) {
+  // Master não aparece como autor nos logs
+  const filtrado = (data || []).filter(l => l.perfis?.tipo !== "MASTER");
+
+  if (!filtrado || filtrado.length === 0) {
     tbody.innerHTML = `<tr><td colspan="6" class="texto-suave">Nenhum log registrado.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = data.map(l => `
+  tbody.innerHTML = filtrado.map(l => `
     <tr>
       <td class="texto-pequeno">${new Date(l.created_at).toLocaleString("pt-BR")}</td>
       <td>${l.perfis?.nome || "—"}</td>
@@ -44,7 +47,7 @@ async function carregarLogs() {
   `).join("");
 
   // Cache for detail view
-  window._logsCache = data;
+  window._logsCache = filtrado;
 }
 
 function verDetalhesLog(id) {
