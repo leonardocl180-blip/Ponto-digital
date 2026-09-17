@@ -428,10 +428,20 @@ async function abrirCamera() {
   document.getElementById("btn-tirar-foto").addEventListener("click", tirarFotoERegistrar);
 
   try {
-    streamCamera = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    streamCamera = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 640, min: 320 },
+        height: { ideal: 480, min: 240 }
+      }
+    });
     const video = document.getElementById("video-camera");
     video.srcObject = streamCamera;
     video.addEventListener("playing", () => {
+      // Debug: confira no console do tablet a resolução real obtida.
+      // Se vier muito baixa (ex: <320x240), o problema é a câmera/stream,
+      // não o face-api.
+      console.log("[quiosque] resolução da câmera:", video.videoWidth, "x", video.videoHeight);
       // Câmera pronta: libera o botão direto, sem rodar detecção contínua
       // (mais leve — a detecção roda uma única vez, no momento da foto)
       const btn = document.getElementById("btn-tirar-foto");
@@ -522,6 +532,7 @@ async function tirarFotoERegistrar() {
       .withFaceDescriptor();
 
     if (!det) {
+      console.log("[quiosque] nenhum rosto encontrado. Canvas analisado:", canvas.width, "x", canvas.height);
       permitirNovaTentativa("Nenhum rosto encontrado. Tente novamente.");
       return;
     }
