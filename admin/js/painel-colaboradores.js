@@ -423,6 +423,7 @@ async function abrirCameraReferencia(colaboradorId, onSucesso) {
         .withFaceDescriptor();
 
       if (!det) {
+        console.log("[painel] nenhum rosto encontrado. Canvas analisado:", canvas.width, "x", canvas.height);
         permitirNovaTentativa("Nenhum rosto encontrado. Tente novamente.");
         return;
       }
@@ -453,11 +454,18 @@ async function abrirCameraReferencia(colaboradorId, onSucesso) {
   }
 
   try {
-    streamRef = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    streamRef = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 640, min: 320 },
+        height: { ideal: 480, min: 240 }
+      }
+    });
     const video = document.getElementById("video-ref");
     video.srcObject = streamRef;
 
     video.addEventListener("playing", () => {
+      console.log("[painel] resolução da câmera:", video.videoWidth, "x", video.videoHeight);
       const btn = document.getElementById("btn-capturar-ref");
       const statusEl = document.getElementById("status-ref");
       if (btn) {
