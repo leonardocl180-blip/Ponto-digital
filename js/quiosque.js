@@ -400,9 +400,7 @@ async function abrirCamera() {
       <div class="modal-pin" style="max-width:420px;">
         <h3>${precisaReconhecimento ? "🔐 Verificação facial" : "Sorria! 📸"}</h3>
         <p class="texto-suave texto-pequeno mt-8">
-          ${precisaReconhecimento
-            ? "Posicione seu rosto para confirmar a identidade"
-            : "Confirme sua identidade para registrar o ponto"}
+          Posicione seu rosto no quadro e toque em "Tirar foto"
         </p>
         <div class="camera-wrap mt-16" style="position:relative;">
           <video id="video-camera" autoplay playsinline
@@ -416,7 +414,7 @@ async function abrirCamera() {
         <div class="stack mt-16">
           <button class="btn btn--primario btn--bloco" id="btn-tirar-foto"
             disabled style="opacity:0.5;cursor:not-allowed;">
-            ${precisaReconhecimento ? "Aguardando verificação..." : "Aguardando rosto..."}
+            Iniciando câmera...
           </button>
           <button class="btn btn--ghost" id="btn-cancelar-camera">Cancelar</button>
         </div>
@@ -429,82 +427,24 @@ async function abrirCamera() {
   });
   document.getElementById("btn-tirar-foto").addEventListener("click", tirarFotoERegistrar);
 
-  let faceInterval = null;
-
-  function habilitarBotao(label) {
-    const btn = document.getElementById("btn-tirar-foto");
-    if (!btn) return;
-    btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
-    btn.textContent = label || "Tirar foto e registrar";
-  }
-  function desabilitarBotao(label) {
-    const btn = document.getElementById("btn-tirar-foto");
-    if (!btn) return;
-    btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed";
-    btn.textContent = label || "Aguardando rosto...";
-  }
-
-  async function iniciarDeteccao(video) {
-    if (typeof faceapi === "undefined") { habilitarBotao(); return; }
-    try { await carregarModelosFace(); } catch { habilitarBotao(); return; }
-
-    const overlay = document.getElementById("face-overlay");
-    const status  = document.getElementById("camera-status");
-
-    faceInterval = setInterval(async () => {
-      if (!document.getElementById("video-camera")) { clearInterval(faceInterval); return; }
-      try {
-        const det = await faceapi
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-
-        if (!det) {
-          overlay.style.borderColor = "#e57373";
-          status.style.color = "#e57373";
-          status.textContent = "Posicione seu rosto no centro";
-          desabilitarBotao(precisaReconhecimento ? "Aguardando verificação..." : "Aguardando rosto...");
-          return;
-        }
-
-        const descriptorAtual = Array.from(det.descriptor);
-
-        if (precisaReconhecimento) {
-          const confere = descritoresConfere(
-            colaboradorSelecionado.descritor_facial,
-            descriptorAtual
-          );
-          if (confere) {
-            overlay.style.borderColor = "#4caf50";
-            status.style.color = "#4caf50";
-            status.textContent = "✓ Identidade confirmada";
-            habilitarBotao("Registrar ponto");
-          } else {
-            overlay.style.borderColor = "#e57373";
-            status.style.color = "#e57373";
-            status.textContent = "✗ Rosto não reconhecido";
-            desabilitarBotao("Aguardando verificação...");
-          }
-        } else {
-          overlay.style.borderColor = "#4caf50";
-          status.style.color = "#4caf50";
-          status.textContent = "✓ Rosto detectado";
-          habilitarBotao("Tirar foto e registrar");
-        }
-      } catch (_) { habilitarBotao(); }
-    }, 400);
-  }
-
-  window._pararCameraComDeteccao = () => {
-    if (faceInterval) { clearInterval(faceInterval); faceInterval = null; }
-    pararCamera();
-  };
-
   try {
     streamCamera = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
     const video = document.getElementById("video-camera");
     video.srcObject = streamCamera;
-    video.addEventListener("playing", () => iniciarDeteccao(video), { once: true });
+    video.addEventListener("playing", () => {
+      // Câmera pronta: libera o botão direto, sem rodar detecção contínua
+      // (mais leve — a detecção roda uma única vez, no momento da foto)
+      const btn = document.getElementById("btn-tirar-foto");
+      const status = document.getElementById("camera-status");
+      if (btn) {
+        btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
+        btn.textContent = "Tirar foto";
+      }
+      if (status) status.textContent = "";
+      // Pré-carrega os modelos em segundo plano para a foto não ter
+      // que esperar o carregamento no momento do toque
+      carregarModelosFace().catch(() => {});
+    }, { once: true });
   } catch (e) {
     console.error("Câmera indisponível:", e);
     const statusEl = document.getElementById("camera-status");
@@ -527,6 +467,16 @@ function pararCamera() {
 
 async function tirarFotoERegistrar() {
   const video = document.getElementById("video-camera");
+  const btn = document.getElementById("btn-tirar-foto");
+  const status = document.getElementById("camera-status");
+  const overlay = document.getElementById("face-overlay");
+
+  if (btn) {
+    btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed";
+    btn.textContent = "Analisando...";
+  }
+  if (status) { status.style.color = "#aaa"; status.textContent = "Analisando foto..."; }
+
   const canvas = document.createElement("canvas");
   canvas.width  = video.videoWidth  || 480;
   canvas.height = video.videoHeight || 360;
@@ -535,11 +485,69 @@ async function tirarFotoERegistrar() {
   ctx.translate(canvas.width, 0);
   ctx.scale(-1, 1);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  fotoCapturadaDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
 
-  if (window._pararCameraComDeteccao) window._pararCameraComDeteccao();
-  else pararCamera();
-  await registrarEFinalizar(fotoCapturadaDataUrl);
+  const precisaReconhecimento =
+    colaboradorSelecionado?.reconhecimento_facial_ativo &&
+    colaboradorSelecionado?.descritor_facial;
+
+  // Permite ao usuário tentar novamente sem fechar a câmera
+  function permitirNovaTentativa(mensagem) {
+    if (overlay) overlay.style.borderColor = "#e57373";
+    if (status) { status.style.color = "#e57373"; status.textContent = mensagem; }
+    if (btn) {
+      btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
+      btn.textContent = "Tirar foto";
+    }
+  }
+
+  // Sem face-api disponível: não há como detectar/verificar o rosto,
+  // então seguimos com o registro normalmente (mesmo comportamento de
+  // antes quando a biblioteca falhava ao carregar)
+  if (typeof faceapi === "undefined") {
+    fotoCapturadaDataUrl = dataUrl;
+    pararCamera();
+    await registrarEFinalizar(dataUrl);
+    return;
+  }
+
+  try {
+    await carregarModelosFace();
+
+    // Detecção rodada uma única vez, sobre a imagem estática já
+    // capturada — bem mais leve que rodar a cada 400ms sobre o vídeo
+    const det = await faceapi
+      .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!det) {
+      permitirNovaTentativa("Nenhum rosto encontrado. Tente novamente.");
+      return;
+    }
+
+    if (precisaReconhecimento) {
+      const descriptorAtual = Array.from(det.descriptor);
+      const confere = descritoresConfere(colaboradorSelecionado.descritor_facial, descriptorAtual);
+      if (!confere) {
+        permitirNovaTentativa("Rosto não reconhecido. Tente novamente.");
+        return;
+      }
+    }
+
+    if (overlay) overlay.style.borderColor = "#4caf50";
+    if (status) { status.style.color = "#4caf50"; status.textContent = "✓ Rosto confirmado"; }
+
+    fotoCapturadaDataUrl = dataUrl;
+    pararCamera();
+    await registrarEFinalizar(dataUrl);
+  } catch (e) {
+    console.error("Erro na detecção facial:", e);
+    // Falha inesperada na detecção não deve travar o registro do ponto
+    fotoCapturadaDataUrl = dataUrl;
+    pararCamera();
+    await registrarEFinalizar(dataUrl);
+  }
 }
 
 // ------------------------------------------------------------
