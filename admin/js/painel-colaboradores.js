@@ -348,7 +348,7 @@ async function abrirCameraReferencia(colaboradorId, onSucesso) {
   div.innerHTML = `
     <div class="card" style="max-width:420px;width:100%;text-align:center;">
       <h3>📷 Cadastrar rosto de referência</h3>
-      <p class="texto-suave texto-pequeno mt-8">Posicione o rosto do colaborador e aguarde a detecção</p>
+      <p class="texto-suave texto-pequeno mt-8">Posicione o rosto do colaborador no quadro e toque em "Capturar"</p>
       <div style="position:relative;margin-top:16px;">
         <video id="video-ref" autoplay playsinline
           style="transform:scaleX(-1);width:100%;border-radius:var(--raio-medio);display:block;"></video>
@@ -357,7 +357,7 @@ async function abrirCameraReferencia(colaboradorId, onSucesso) {
       <p id="status-ref" class="texto-pequeno mt-8" style="font-weight:600;min-height:20px;"></p>
       <div class="row mt-16">
         <button class="btn btn--secundario flex-1" id="btn-cancelar-ref">Cancelar</button>
-        <button class="btn btn--primario flex-1" id="btn-capturar-ref" disabled style="opacity:0.5;cursor:not-allowed;">Capturar</button>
+        <button class="btn btn--primario flex-1" id="btn-capturar-ref" disabled style="opacity:0.5;cursor:not-allowed;">Iniciando câmera...</button>
       </div>
       <p id="msg-ref" class="texto-pequeno mt-8" style="color:#e57373;"></p>
     </div>
@@ -365,73 +365,108 @@ async function abrirCameraReferencia(colaboradorId, onSucesso) {
   document.body.appendChild(div);
 
   let streamRef = null;
-  let faceIntervalRef = null;
-  let descriptorCapturado = null;
 
   function pararTudo() {
-    if (faceIntervalRef) { clearInterval(faceIntervalRef); faceIntervalRef = null; }
     if (streamRef) { streamRef.getTracks().forEach(t => t.stop()); streamRef = null; }
     document.getElementById(wrapId)?.remove();
   }
 
   document.getElementById("btn-cancelar-ref").addEventListener("click", pararTudo);
+  document.getElementById("btn-capturar-ref").addEventListener("click", capturarECadastrarRosto);
 
-  document.getElementById("btn-capturar-ref").addEventListener("click", async () => {
-    if (!descriptorCapturado) return;
+  // Captura um único quadro do vídeo, roda a detecção uma vez sobre
+  // essa imagem estática (bem mais leve que detectar a cada 400ms no
+  // vídeo ao vivo) e, se encontrar um rosto, já salva o descritor.
+  async function capturarECadastrarRosto() {
+    const video = document.getElementById("video-ref");
+    const overlay = document.getElementById("overlay-ref");
+    const statusEl = document.getElementById("status-ref");
     const msgEl = document.getElementById("msg-ref");
-    msgEl.style.color = "#aaa";
-    msgEl.textContent = "Salvando...";
-    const { error } = await supabaseClient
-      .from("colaboradores")
-      .update({ descritor_facial: descriptorCapturado })
-      .eq("id", colaboradorId);
-    if (error) { msgEl.style.color = "#e57373"; msgEl.textContent = "Erro: " + error.message; return; }
-    pararTudo();
-    if (onSucesso) onSucesso();
-  });
+    const btn = document.getElementById("btn-capturar-ref");
+
+    if (btn) {
+      btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed";
+      btn.textContent = "Analisando...";
+    }
+    msgEl.textContent = "";
+
+    const canvas = document.createElement("canvas");
+    canvas.width  = video.videoWidth  || 480;
+    canvas.height = video.videoHeight || 360;
+    const ctx = canvas.getContext("2d");
+    // Espelha o canvas para corresponder ao que foi visto na câmera
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    function permitirNovaTentativa(mensagem) {
+      overlay.style.borderColor = "#e57373";
+      statusEl.style.color = "#e57373";
+      statusEl.textContent = mensagem;
+      if (btn) {
+        btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
+        btn.textContent = "Capturar";
+      }
+    }
+
+    try {
+      await carregarModelosFaceAdmin();
+    } catch (e) {
+      permitirNovaTentativa("Erro ao carregar modelos de reconhecimento facial.");
+      return;
+    }
+
+    try {
+      const det = await faceapi
+        .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!det) {
+        permitirNovaTentativa("Nenhum rosto encontrado. Tente novamente.");
+        return;
+      }
+
+      overlay.style.borderColor = "#4caf50";
+      statusEl.style.color = "#4caf50";
+      statusEl.textContent = "✓ Rosto detectado — salvando...";
+
+      const descriptorCapturado = Array.from(det.descriptor);
+      const { error } = await supabaseClient
+        .from("colaboradores")
+        .update({ descritor_facial: descriptorCapturado })
+        .eq("id", colaboradorId);
+
+      if (error) {
+        msgEl.style.color = "#e57373";
+        msgEl.textContent = "Erro: " + error.message;
+        if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer"; btn.textContent = "Capturar"; }
+        return;
+      }
+
+      pararTudo();
+      if (onSucesso) onSucesso();
+    } catch (e) {
+      console.error("Erro na detecção facial:", e);
+      permitirNovaTentativa("Erro ao processar a foto. Tente novamente.");
+    }
+  }
 
   try {
     streamRef = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
     const video = document.getElementById("video-ref");
     video.srcObject = streamRef;
 
-    video.addEventListener("playing", async () => {
+    video.addEventListener("playing", () => {
+      const btn = document.getElementById("btn-capturar-ref");
       const statusEl = document.getElementById("status-ref");
-      statusEl.textContent = "Carregando modelos...";
-      statusEl.style.color = "#aaa";
-      try {
-        await carregarModelosFaceAdmin();
-      } catch (e) {
-        statusEl.textContent = "Erro ao carregar modelos de reconhecimento facial.";
-        statusEl.style.color = "#e57373";
-        return;
+      if (btn) {
+        btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer";
+        btn.textContent = "Capturar";
       }
-
-      const overlay = document.getElementById("overlay-ref");
-      faceIntervalRef = setInterval(async () => {
-        if (!document.getElementById("video-ref")) { clearInterval(faceIntervalRef); return; }
-        try {
-          const det = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-            .withFaceLandmarks()
-            .withFaceDescriptor();
-
-          const btn = document.getElementById("btn-capturar-ref");
-          if (det) {
-            descriptorCapturado = Array.from(det.descriptor);
-            overlay.style.borderColor = "#4caf50";
-            statusEl.style.color = "#4caf50";
-            statusEl.textContent = "✓ Rosto detectado — pronto para capturar";
-            if (btn) { btn.disabled = false; btn.style.opacity = "1"; btn.style.cursor = "pointer"; }
-          } else {
-            descriptorCapturado = null;
-            overlay.style.borderColor = "#e57373";
-            statusEl.style.color = "#e57373";
-            statusEl.textContent = "Posicione o rosto no centro";
-            if (btn) { btn.disabled = true; btn.style.opacity = "0.5"; btn.style.cursor = "not-allowed"; }
-          }
-        } catch (_) {}
-      }, 400);
+      if (statusEl) statusEl.textContent = "";
+      // Pré-carrega os modelos em segundo plano para a captura ser rápida
+      carregarModelosFaceAdmin().catch(() => {});
     }, { once: true });
   } catch (e) {
     document.getElementById("msg-ref").textContent = "Câmera indisponível neste dispositivo.";
