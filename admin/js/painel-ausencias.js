@@ -9,11 +9,21 @@ const NOMES_DIA = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 async function carregarAusencias() {
   const tbody = document.getElementById("tbody-ausencias");
 
-  const { data, error } = await supabaseClient
+  const colaboradorId = document.getElementById("select-colaborador-ausencias")?.value || "";
+  const dataInicio    = document.getElementById("data-inicio-ausencias")?.value || "";
+  const dataFim       = document.getElementById("data-fim-ausencias")?.value || "";
+
+  let query = supabaseClient
     .from("ausencias")
     .select("*, colaboradores(nome)")
     .order("data", { ascending: false })
-    .limit(100);
+    .limit(300);
+
+  if (colaboradorId) query = query.eq("colaborador_id", colaboradorId);
+  if (dataInicio)    query = query.gte("data", dataInicio);
+  if (dataFim)       query = query.lte("data", dataFim);
+
+  const { data, error } = await query;
 
   if (error) {
     tbody.innerHTML = `<tr><td colspan="5" class="texto-suave">Erro: ${error.message}</td></tr>`;
@@ -210,5 +220,12 @@ document.getElementById("btn-nova-ausencia").addEventListener("click", () => {
   });
 });
 
-document.addEventListener("bsk:perfil-carregado", carregarAusencias);
+document.getElementById("btn-filtrar-ausencias")?.addEventListener("click", carregarAusencias);
+document.getElementById("select-colaborador-ausencias")?.addEventListener("change", carregarAusencias);
+
+document.addEventListener("bsk:perfil-carregado", () => {
+  // Preenche o select de colaborador do filtro
+  preencherSelectColaboradores("select-colaborador-ausencias");
+  carregarAusencias();
+});
 

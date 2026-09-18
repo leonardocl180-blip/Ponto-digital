@@ -191,28 +191,37 @@ function formatarHoras(horasDecimal) {
 // Cabeçalho padrão do PDF (preto e branco)
 // ------------------------------------------------------------
 function desenharCabecalho(doc, titulo, colaborador, periodoTexto) {
+  // Linha 1: empresa (esquerda) e tipo de relatório (direita)
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text("Black Skull Bier", 14, 16);
-
-  doc.setFontSize(10);
+  doc.setFontSize(11);
+  doc.text("Black Skull Bier", 14, 13);
   doc.setFont("helvetica", "normal");
-  doc.text(titulo, 14, 22);
+  doc.setFontSize(9);
+  doc.text(titulo, 196, 13, { align: "right" });
 
+  // Linha separadora
   doc.setDrawColor(0);
   doc.setLineWidth(0.3);
-  doc.line(14, 25, 196, 25);
+  doc.line(14, 16, 196, 16);
 
-  doc.setFontSize(9);
-  let y = 32;
+  // Linha 2: colaborador (esquerda) | vínculo + período (direita)
+  doc.setFontSize(8);
+  let y = 21;
   if (colaborador) {
-    doc.text(`Colaborador: ${colaborador.nome}`, 14, y); y += 5;
-    doc.text(`Cargo: ${colaborador.cargo || "-"}`, 14, y); y += 5;
-    doc.text(`Vínculo: ${colaborador.vinculo}`, 14, y); y += 5;
+    const cargo = colaborador.cargo ? ` — ${colaborador.cargo}` : "";
+    doc.setFont("helvetica", "bold");
+    doc.text(`${colaborador.nome}${cargo}`, 14, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${colaborador.vinculo}  |  ${periodoTexto}`, 196, y, { align: "right" });
+  } else {
+    doc.text(periodoTexto, 196, y, { align: "right" });
   }
-  doc.text(`Período: ${periodoTexto}`, 14, y); y += 7;
 
-  return y;
+  y += 4;
+  doc.setLineWidth(0.1);
+  doc.line(14, y, 196, y);
+
+  return y + 4;
 }
 
 function desenharRodapeAssinatura(doc, y) {
@@ -419,20 +428,26 @@ async function gerarPdfClt(colaborador, anoMes) {
   const periodoTexto = `${inicio.toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}`;
   let y = desenharCabecalho(doc, "Folha de ponto mensal — CLT", colaborador, periodoTexto);
 
+  // Ajusta fonte dinamicamente: meses com muitas linhas (31 dias) recebem
+  // fonte menor para caber na página sem precisar da verificação de espaço
+  const totalLinhas = linhas.length;
+  const fonteTamTabela = totalLinhas > 28 ? 6.5 : totalLinhas > 25 ? 7 : 7.5;
+  const alturaLinha    = totalLinhas > 28 ? 4   : totalLinhas > 25 ? 4.5 : 5;
+
   doc.autoTable({
     startY: y,
     head: [["Data","Entrada","Saída almoço","Volta almoço","Saída","Total","Extra/Atraso","Obs."]],
     body: linhas,
     theme: "plain",
-    styles: { fontSize: 7.5, textColor: 0, lineColor: 0, lineWidth: 0.1 },
-    headStyles: { fontStyle: "bold", lineWidth: 0.2 },
+    styles: { fontSize: fonteTamTabela, textColor: 0, lineColor: 0, lineWidth: 0.1, cellPadding: alturaLinha / 4 },
+    headStyles: { fontStyle: "bold", lineWidth: 0.2, fontSize: fonteTamTabela },
     columnStyles: {
       0: { cellWidth: 22 },
-      1: { cellWidth: 18 },
-      2: { cellWidth: 23 },
-      3: { cellWidth: 23 },
-      4: { cellWidth: 18 },
-      5: { cellWidth: 18 },
+      1: { cellWidth: 17 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 17 },
+      5: { cellWidth: 17 },
       6: { cellWidth: 22 },
       7: { cellWidth: "auto" },
     },
