@@ -95,6 +95,17 @@
         <h2>Faltas e folgas</h2>
         <button class="btn btn--primario" id="btn-nova-ausencia">+ Lançar ausência</button>
       </div>
+      <div class="toolbar">
+        <select id="select-colaborador-ausencias" class="input" style="max-width:240px;">
+          <option value="">Todos os colaboradores</option>
+        </select>
+        <div class="row">
+          <input type="date" id="data-inicio-ausencias" class="input">
+          <span class="texto-suave">até</span>
+          <input type="date" id="data-fim-ausencias" class="input">
+          <button class="btn btn--secundario" id="btn-filtrar-ausencias">Filtrar</button>
+        </div>
+      </div>
       <div class="tabela-wrap">
         <table class="bsk-tabela">
           <thead>
