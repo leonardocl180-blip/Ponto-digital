@@ -224,8 +224,15 @@ document.getElementById("btn-filtrar-ausencias")?.addEventListener("click", carr
 document.getElementById("select-colaborador-ausencias")?.addEventListener("change", carregarAusencias);
 
 document.addEventListener("bsk:perfil-carregado", () => {
-  // Preenche o select de colaborador do filtro
-  preencherSelectColaboradores("select-colaborador-ausencias");
+  // Preenche o select de colaborador do filtro manualmente,
+  // garantindo que o colaboradoresCache já está disponível
+  const sel = document.getElementById("select-colaborador-ausencias");
+  if (sel) {
+    sel.innerHTML = '<option value="">Todos os colaboradores</option>' +
+      (colaboradoresCache || []).map(c =>
+        `<option value="${c.id}">${c.nome}</option>`
+      ).join("");
+  }
   carregarAusencias();
 });
 
