@@ -191,10 +191,12 @@ function formatarHoras(horasDecimal) {
 // Cabeçalho padrão do PDF (preto e branco)
 // ------------------------------------------------------------
 function desenharCabecalho(doc, titulo, colaborador, periodoTexto) {
+  const nomeEmpresa = colaborador?.nome_empresa || "Black Skull Bier";
+
   // Linha 1: empresa (esquerda) e tipo de relatório (direita)
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Black Skull Bier", 14, 13);
+  doc.text(nomeEmpresa, 14, 13);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(titulo, 196, 13, { align: "right" });

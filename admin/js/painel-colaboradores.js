@@ -87,6 +87,11 @@ function abrirModalColaborador(colaborador) {
             <input type="text" id="f-cargo" class="input" value="${c.cargo || ""}">
           </div>
           <div>
+            <label class="bsk-label">Empresa no relatório</label>
+            <input type="text" id="f-nome-empresa" class="input" value="${c.nome_empresa || ""}" placeholder="Ex: Black Skull Bier">
+            <p class="texto-suave texto-pequeno mt-4">Nome que aparece no cabeçalho do PDF. Se vazio usa "Black Skull Bier".</p>
+          </div>
+          <div>
             <label class="bsk-label">PIN (4 dígitos, usado no quiosque)</label>
             <input type="text" id="f-pin" class="input" value="${c.pin || ""}" pattern="[0-9]{4}" maxlength="4" required>
           </div>
@@ -248,6 +253,7 @@ async function salvarColaborador(idExistente) {
   const payload = {
     nome: document.getElementById("f-nome").value.trim(),
     cargo: document.getElementById("f-cargo").value.trim() || null,
+    nome_empresa: document.getElementById("f-nome-empresa").value.trim() || null,
     pin: document.getElementById("f-pin").value.trim(),
     vinculo,
     tipo_registro: document.getElementById("f-tipo-registro").value,
