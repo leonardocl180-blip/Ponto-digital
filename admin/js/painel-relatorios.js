@@ -267,13 +267,26 @@ async function gerarPdfClt(colaborador, anoMes) {
   const dias = gerarListaDias(inicio, fim);
   const linhas = [];
   let totalHoras = 0, totalExtra = 0, totalFaltas = 0;
-  let horasExtraNormais = 0, horasExtraEspeciais = 0;
+  let horasExtraNormais = 0, horasExtraEspeciais = 0, horasNoturnas = 0;
 
-  // Feriados do ano do relatório
-  const feriados = calcularFeriadosBrasileiros(ano);
+  // Feriados nacionais calculados + feriados manuais do banco
+  const feriadosNacionais = calcularFeriadosBrasileiros(ano);
+  const { data: feriadosManuaisDB } = await supabaseClient
+    .from("feriados_manuais")
+    .select("data")
+    .gte("data", `${ano}-01-01`)
+    .lte("data", `${ano}-12-31`);
+  const feriados = new Set([
+    ...feriadosNacionais,
+    ...(feriadosManuaisDB || []).map(f => f.data)
+  ]);
 
   const pctNormal   = colaborador.percentual_hora_extra_normal   ?? 50;
   const pctEspecial = colaborador.percentual_hora_extra_especial ?? 100;
+
+  // Divisor baseado na jornada semanal contratada
+  const DIVISORES = { 44: 220, 40: 200, 36: 180, 30: 150 };
+  const divisorSalario = DIVISORES[colaborador.jornada_semanal] || 220;
 
   const jornadaEsperada = (() => {
     if (!colaborador.horario_entrada || !colaborador.horario_saida) return 8;
@@ -287,6 +300,23 @@ async function gerarPdfClt(colaborador, anoMes) {
     }
     return totalMin / 60;
   })();
+
+  // Horas no período noturno BRT (22h–05h)
+  function calcularHorasNoturnas(entIso, saiIso) {
+    if (!entIso || !saiIso) return 0;
+    const ent = new Date(entIso).getTime() - 3 * 3600000;
+    const sai = new Date(saiIso).getTime() - 3 * 3600000;
+    if (sai <= ent) return 0;
+    const diaBRT = Math.floor(ent / 86400000) * 86400000;
+    let total = 0;
+    for (let d = -1; d <= 1; d++) {
+      const janIni = diaBRT + d * 86400000 + 22 * 3600000;
+      const janFim = diaBRT + (d + 1) * 86400000 + 5 * 3600000;
+      const overlap = Math.min(sai, janFim) - Math.max(ent, janIni);
+      if (overlap > 0) total += overlap / 3600000;
+    }
+    return total;
+  }
 
   // Ordena todos os registros cronologicamente para encontrar pares entrada→saída
   const todosOrdenados = [...(registros || [])].sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
@@ -396,9 +426,8 @@ async function gerarPdfClt(colaborador, anoMes) {
         const ehDiaEspecial = ehFeriado || ehDomingoForaEscala || ehFolgaTrabalhada;
 
         if (ehDiaEspecial) {
-          // Todas as horas do dia especial contam como hora extra especial
           horasExtraEspeciais += horasNoDia;
-          extraOuAtraso = horasNoDia; // positivo: dia bônus
+          extraOuAtraso = horasNoDia;
           if (observacao === "") {
             observacao = ehFeriado ? "Feriado" : ehDomingoForaEscala ? "Domingo" : "Folga trabalhada";
           }
@@ -407,11 +436,25 @@ async function gerarPdfClt(colaborador, anoMes) {
           if (extraOuAtraso < 0 && extraOuAtraso >= -5/60) extraOuAtraso = 0;
           if (extraOuAtraso > 0) horasExtraNormais += extraOuAtraso;
         }
+
+        // Adicional noturno: horas entre 22h e 05h BRT
+        if (entradasSimples.length > 0 && entradaRef) {
+          if (saidaAlmocoRef) horasNoturnas += calcularHorasNoturnas(entradaRef.data_hora, saidaAlmocoRef.data_hora);
+          else if (saidaRef)  horasNoturnas += calcularHorasNoturnas(entradaRef.data_hora, saidaRef.data_hora);
+          if (voltaAlmocoRef && saidaRef) horasNoturnas += calcularHorasNoturnas(voltaAlmocoRef.data_hora, saidaRef.data_hora);
+        } else if (turnos.length > 0) {
+          turnos.forEach(t => { if (t.saida) horasNoturnas += calcularHorasNoturnas(t.entrada.data_hora, t.saida.data_hora); });
+        }
+
         totalHoras += horasNoDia;
         totalExtra += extraOuAtraso;
       }
+    } else if (trabalhaEsteDia && !feriados.has(diaStr)) {
+      // Dia útil sem registro = falta automática
+      observacao = "Falta";
+      totalFaltas++;
     } else {
-      observacao = "Sem registro";
+      observacao = feriados.has(diaStr) ? "Feriado" : "—";
     }
 
     linhas.push([
@@ -481,6 +524,7 @@ async function gerarPdfClt(colaborador, anoMes) {
   doc.text(`Saldo extras/atrasos: ${formatarHoras(totalExtra)}`, xL, yL); yL += 5;
   doc.text(`H.E. normais (${pctNormal}%): ${formatarHoras(horasExtraNormais)}`, xL, yL); yL += 5;
   doc.text(`H.E. especiais (${pctEspecial}%): ${formatarHoras(horasExtraEspeciais)}`, xL, yL); yL += 5;
+  doc.text(`Adicional noturno (20%): ${formatarHoras(horasNoturnas)}`, xL, yL); yL += 5;
   doc.text(`Faltas: ${totalFaltas}`, xL, yL); yL += 5;
 
   // ---- Coluna direita: salário (só se salário base estiver preenchido) ----
@@ -489,17 +533,17 @@ async function gerarPdfClt(colaborador, anoMes) {
       const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
       return (colaborador.dias_trabalho || [1,2,3,4,5]).includes(d.getDay()) && !feriados.has(ds);
     }).length;
-    const horasMensais       = (diasUteisNoMes * jornadaEsperada) || 220;
-    const valorHora          = colaborador.salario_base / horasMensais;
+    const valorHora          = colaborador.salario_base / divisorSalario;
     const valorExtraNormal   = horasExtraNormais   * valorHora * (pctNormal   / 100);
     const valorExtraEspecial = horasExtraEspeciais * valorHora * (pctEspecial / 100);
-    const totalSalario       = colaborador.salario_base + valorExtraNormal + valorExtraEspecial;
+    const valorNoturno       = horasNoturnas       * valorHora * 0.20;
+    const descontoFaltas     = totalFaltas > 0 && diasUteisNoMes > 0
+      ? (colaborador.salario_base / diasUteisNoMes) * totalFaltas : 0;
+    const totalSalario = colaborador.salario_base + valorExtraNormal + valorExtraEspecial + valorNoturno - descontoFaltas;
     const brl = v => `R$ ${v.toFixed(2).replace(".", ",")}`;
 
-    // Linha separadora vertical — limitada à área de conteúdo da página
-    const yLinhaFim = Math.min(Math.max(yL, yBase + 40), 270);
-    doc.setDrawColor(180);
-    doc.setLineWidth(0.2);
+    const yLinhaFim = Math.min(Math.max(yL, yBase + 45), 270);
+    doc.setDrawColor(180); doc.setLineWidth(0.2);
     doc.line(xR - 4, yBase - 2, xR - 4, yLinhaFim);
     doc.setDrawColor(0);
 
@@ -507,9 +551,13 @@ async function gerarPdfClt(colaborador, anoMes) {
     doc.text("Cálculo salarial", xR, yR); yR += 6;
     doc.setFont("helvetica", "normal");
     doc.text(`Salário base: ${brl(colaborador.salario_base)}`, xR, yR); yR += 5;
-    doc.text(`Valor/hora: ${brl(valorHora)} (${horasMensais.toFixed(0)}h/mês)`, xR, yR); yR += 5;
+    doc.text(`Valor/hora: ${brl(valorHora)} (÷${divisorSalario} | ${colaborador.jornada_semanal || 44}h/sem)`, xR, yR); yR += 5;
     doc.text(`H.E. normais ${formatarHoras(horasExtraNormais)} × ${pctNormal}%: ${brl(valorExtraNormal)}`, xR, yR); yR += 5;
     doc.text(`H.E. especiais ${formatarHoras(horasExtraEspeciais)} × ${pctEspecial}%: ${brl(valorExtraEspecial)}`, xR, yR); yR += 5;
+    doc.text(`Adicional noturno ${formatarHoras(horasNoturnas)} × 20%: ${brl(valorNoturno)}`, xR, yR); yR += 5;
+    if (descontoFaltas > 0) {
+      doc.text(`Desconto faltas (${totalFaltas}×): -${brl(descontoFaltas)}`, xR, yR); yR += 5;
+    }
     doc.setFont("helvetica", "bold");
     doc.text(`Total a receber: ${brl(totalSalario)}`, xR, yR); yR += 5;
     doc.setFont("helvetica", "normal");

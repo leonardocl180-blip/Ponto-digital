@@ -143,6 +143,13 @@ function abrirModalColaborador(colaborador) {
                 </label>
               `).join("")}
             </div>
+            <label class="bsk-label mt-16">Jornada semanal contratada</label>
+            <select id="f-jornada-semanal" class="input">
+              <option value="44" ${(c.jornada_semanal ?? 44) == 44 ? "selected" : ""}>44h/semana — divisor 220 (padrão CLT)</option>
+              <option value="40" ${c.jornada_semanal == 40 ? "selected" : ""}>40h/semana — divisor 200</option>
+              <option value="36" ${c.jornada_semanal == 36 ? "selected" : ""}>36h/semana — divisor 180</option>
+              <option value="30" ${c.jornada_semanal == 30 ? "selected" : ""}>30h/semana — divisor 150</option>
+            </select>
             <label class="bsk-label mt-16">Salário base (R$)</label>
             <input type="number" id="f-salario-base" class="input" min="0" step="0.01"
               placeholder="Ex: 1500.00" value="${c.salario_base ?? ""}">
@@ -266,6 +273,7 @@ async function salvarColaborador(idExistente) {
     payload.horario_volta_almoco = document.getElementById("f-volta-almoco").value || null;
     payload.horario_saida = document.getElementById("f-saida").value || null;
     payload.dias_trabalho = diasSelecionados;
+    payload.jornada_semanal = parseInt(document.getElementById("f-jornada-semanal")?.value || "44");
     const salBase = document.getElementById("f-salario-base")?.value;
     payload.salario_base = salBase !== "" && salBase != null ? parseFloat(salBase) : null;
     payload.percentual_hora_extra_normal   = parseInt(document.getElementById("f-extra-normal")?.value  || "50");
