@@ -34,6 +34,7 @@
       <button class="nav-item" data-secao="secao-relatorios">Relatórios</button>
       <button class="nav-item" data-secao="secao-gestores" id="nav-gestores" style="display:none;">Gestores</button>
       <button class="nav-item" data-secao="secao-logs">Logs</button>
+      <button class="nav-item" data-secao="secao-feriados">Feriados</button>
       <button class="nav-item" data-secao="secao-configuracoes" id="nav-configuracoes" style="display:none;">Configurações</button>
     </nav>
 
@@ -167,6 +168,27 @@
       </div>
     </section>
 
+    <!-- ========== FERIADOS ========== -->
+    <section class="painel-secao" id="secao-feriados">
+      <div class="painel-topbar">
+        <h2>Feriados</h2>
+        <button class="btn btn--primario" id="btn-novo-feriado">+ Adicionar feriado</button>
+      </div>
+      <p class="texto-suave texto-pequeno" style="margin-bottom:16px;">
+        Os feriados nacionais (Natal, Páscoa, Tiradentes etc.) são calculados automaticamente.
+        Adicione aqui feriados estaduais, municipais ou pontos facultativos.
+        Todos contam como 100% de hora extra para quem trabalhar nesse dia.
+      </p>
+      <div class="tabela-wrap">
+        <table class="bsk-tabela">
+          <thead><tr><th>Data</th><th>Nome</th><th>Tipo</th><th></th></tr></thead>
+          <tbody id="tbody-feriados">
+            <tr><td colspan="4" class="texto-suave">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="painel-secao" id="secao-logs">
       <div class="painel-topbar"><h2>Logs de alterações</h2></div>
       <div class="tabela-wrap">
@@ -223,6 +245,7 @@
 <script src="js/painel-ausencias.js?v=20260704"></script>
 <script src="js/painel-relatorios.js?v=20260704"></script>
 <script src="js/painel-gestores.js?v=20260704"></script>
+<script src="js/painel-feriados.js?v=20260704"></script>
 <script src="js/painel-logs.js?v=20260704"></script>
 <script src="js/painel-configuracoes.js?v=20260704"></script>
 <script src="js/painel-nav.js?v=20260704"></script>
